@@ -223,3 +223,6 @@ table.g{border-collapse:separate;border-spacing:0}
 .info:hover,.info[aria-expanded=true]{background:var(--accent);color:var(--accent-ink)}
 .infobox{background:var(--accent-soft);color:var(--ink);border-radius:6px;padding:8px 11px;font-size:13px;line-height:1.35;text-transform:none;letter-spacing:0;font-weight:400;margin:6px 0;flex-basis:100%}
 .legend .infobox{width:100%}
+
+.indic{background:var(--accent-soft);color:var(--ink);font-size:13px;padding:8px 16px;text-align:center;border-bottom:1px solid var(--line)}
+.indic b{color:var(--accent)}

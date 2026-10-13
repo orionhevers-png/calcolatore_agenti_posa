@@ -89,7 +89,7 @@
     const miss = window.APP_CONFIG && window.APP_CONFIG.SUPABASE_URL && demo;
     $app.innerHTML = `<div class="login"><form class="card" id="lf">
       <img src="assets/logo-longato.png" alt="Longato">
-      <h1>Pianificatore posa</h1><p class="s">Accedi con il tuo account</p>
+      <h1>Stima tempi di posa</h1><p class="s">Accedi con il tuo account</p>
       ${S.loginErr ? `<div class="errbox">${esc(S.loginErr)}</div>` : ""}
       ${miss ? `<div class="errbox">Libreria di collegamento non caricata: controlla la connessione e ricarica la pagina.</div>` : ""}
       <label class="field"><span>Email</span><input class="inp" id="lem" type="email" autocomplete="username" required ${demo ? 'placeholder="es. rossi@demo"' : ""}></label>
@@ -134,7 +134,7 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden && S.me && !S.drawer) refresh(true); });
 
   /* ---------- struttura comune ---------- */
-  const TABS_A = [["cruscotto", "Cruscotto"], ["gantt", "Gantt"], ["calendario", "Calendario slot liberi"]];
+  const TABS_A = [["cruscotto", "Cruscotto"], ["calendario", "Calendario slot liberi"]];
   const TABS_G = [["panoramica", "Panoramica"], ["offerte", "Tutte le offerte"], ["gantt", "Gantt"], ["carico", "Carico"], ["impostazioni", "Impostazioni"], ["utenti", "Utenti"]];
 
   function shell(inner) {
@@ -142,7 +142,7 @@
     return `${Api.mode === "demo" ? `<div class="demobar">Modalità demo — dati salvati solo in questo browser. <a href="#" id="dreset" style="color:inherit">Azzera demo</a></div>` : ""}
     <div class="top"><div class="in">
       <div class="bar"><img src="assets/logo-longato.png" alt="Longato">
-        <div class="tt">Pianificatore posa<small>Serramenti PVC · Alluminio</small></div>
+        <div class="tt">Stima tempi di posa<small>Serramenti PVC · Alluminio</small></div>
         <div class="sp"></div>
         <span class="wk">Settimana ${wl(S.cur)}</span>
         ${g ? `<button class="btn" id="xls">Scarica Excel</button>` : ""}
@@ -150,6 +150,7 @@
         <button class="btn" id="logout">Esci</button></div>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}</button>`).join("")}</div>
     </div></div>
+    <div class="indic"><b>Stima indicativa.</b> la settimana mostrata serve solo per orientarsi con il cliente. Non è una data confermata: la programmazione definitiva la fa l'ufficio produzione.</div>
     <main class="shell">${inner}</main>`;
   }
 
@@ -194,26 +195,13 @@
     for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
     return out;
   }
-  const stepsOf = row => {
-    const r = row.r; if (!r.ok) return "";
-    const ph = r.posa < S.cur ? "" : E.phaseAt(r, S.cur, S.cfg);
-    const st = (k, l, a, b, on) => `<div class="s ${on ? "now" : ""}"><b>${l}</b><span class="num">${a === b || b == null ? a : a + " → " + b}</span></div>`;
-    return `<div class="steps">
-      ${st("R", "Rilievo", wl(r.rilFirst), wl(r.rilLast), ph === "R" || ph === "E")}
-      ${st("O", "Ordine materiali", wl(r.M), null, ph === "O" || ph === "A")}
-      ${st("L", "Produzione", wl(r.pFirst), wl(r.pLast), ph === "L" || ph === "Q")}
-      ${st("P", "Posa", wl(r.posa), null, ph === "P" || ph === "S")}</div>`;
-  };
-
   function offertaCard(row, canEdit) {
     const r = row.r, av = avvisiOf(row), done = !isActive(row);
     return `<article class="oc ${done ? "done" : ""}">
       <div class="h"><div class="t"><b>Offerta ${esc(row.numero)} · ${esc(row.cliente)}</b>
         <span>Inserita il ${esc(fmtDay(row.creata_il))} · ${r.fori} fori</span></div>
-        <div class="p"><small>Posa prevista</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
-        ${r.req != null ? `<small>Richiesta: ${wl(r.req)}</small>` : ""}</div></div>
-      <div><span class="badge ${r.ok ? (av.some(a => a.bad) ? "bad" : av.length ? "warn" : "ok") : "bad"}">${esc(phaseNow(row))}</span></div>
-      ${stepsOf(row)}
+        <div class="p"><small>Settimana indicativa di posa</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
+        ${r.req != null ? `<small>Richiesta dal cliente: ${wl(r.req)}</small>` : ""}</div></div>
       ${av.length ? `<div class="warns">${av.map(a => `<div>⚠ ${esc(a.t)}</div>`).join("")}</div>` : ""}
       ${canEdit ? `<div class="a"><div class="sp"></div><button class="btn sm" data-edit="${row.id}">Modifica</button><button class="btn sm danger" data-del="${row.id}">Elimina</button></div>` : ""}
     </article>`;
@@ -222,19 +210,17 @@
   /* ---------- AGENTE: cruscotto ---------- */
   function vCruscotto() {
     const all = S.rows, act = all.filter(isActive), conAv = act.filter(r => avvisiOf(r).length);
-    const prossima = act.filter(r => r.r.ok).sort((a, b) => a.r.posa - b.r.posa)[0];
     const show = S.showDone ? all : act;
     const alerts = act.flatMap(r => avvisiOf(r).map(a => ({ r, a })));
     return `<div class="pagehead"><h2>Ciao ${esc(S.me.nome.split(" ")[0])}</h2><div class="sp"></div>
         <button class="btn pri" data-new>+ Nuova offerta</button></div>
       <div class="stats">
-        <div class="stat"><div class="l">Offerte attive ${info("Offerte per cui la posa non è ancora stata eseguita.")}</div><div class="v num">${act.length}</div></div>
+        <div class="stat"><div class="l">Offerte attive ${info("Offerte inserite la cui settimana indicativa di posa non è ancora passata.")}</div><div class="v num">${act.length}</div></div>
         <div class="stat ${conAv.length ? "warn" : "good"}"><div class="l">Con avvisi ${info("Offerte con una segnalazione, ad esempio un ritardo. Il dettaglio è nel riquadro a destra.")}</div><div class="v num">${conAv.length}</div></div>
-        <div class="stat"><div class="l">Prossima posa ${info("La prima settimana di posa tra le tue offerte attive.")}</div><div class="v sm num">${prossima ? wl(prossima.r.posa) : "—"}</div>${prossima ? `<div class="n">${esc(prossima.cliente)}</div>` : ""}</div>
       </div>
       <div class="cols"><div>
         <div class="toolbar"><h3 style="margin:0">Le tue offerte</h3><div style="flex:1"></div>
-          <label class="chk"><input type="checkbox" id="showdone" ${S.showDone ? "checked" : ""}> Mostra anche concluse</label></div>
+          <label class="chk"><input type="checkbox" id="showdone" ${S.showDone ? "checked" : ""}> Mostra anche offerte con settimana già passata</label></div>
         ${show.length ? `<div class="cards">${show.slice().reverse().map(r => offertaCard(r, true)).join("")}</div>`
           : `<div class="panel empty"><b>Nessuna offerta attiva</b>Premi «Nuova offerta» per inserirne una.</div>`}
       </div><aside><div class="panel"><h3>I tuoi avvisi</h3>
@@ -306,8 +292,7 @@
     const ag = S.profili.filter(p => p.ruolo === "agente");
     const agRows = ag.map(a => {
       const mine = act.filter(r => r.agente_id === a.id), nx = mine.filter(r => r.r.ok).sort((x, y) => x.r.posa - y.r.posa)[0];
-      return `<tr><td>${esc(a.nome)}${a.attivo ? "" : ' <span class="badge warn">disattivo</span>'}</td><td class="num">${mine.length}</td><td class="num">${mine.reduce((s, r) => s + r.r.fori, 0)}</td>
-        <td class="num">${nx ? wl(nx.r.posa) : "—"}</td><td>${mine.filter(r => avvisiOf(r).length).length ? `<span class="badge warn">${mine.filter(r => avvisiOf(r).length).length}</span>` : '<span class="badge ok">0</span>'}</td></tr>`;
+      return `<tr><td>${esc(a.nome)}${a.attivo ? "" : ' <span class="badge warn">disattivo</span>'}</td><td class="num">${mine.length}</td><td class="num">${mine.reduce((s, r) => s + r.r.fori, 0)}</td><td>${mine.filter(r => avvisiOf(r).length).length ? `<span class="badge warn">${mine.filter(r => avvisiOf(r).length).length}</span>` : '<span class="badge ok">0</span>'}</td></tr>`;
     }).join("");
     return `<div class="pagehead"><h2>Situazione complessiva</h2></div>
       <div class="stats">
@@ -318,7 +303,7 @@
       </div>
       <div class="cols"><div>
         <div class="panel"><h3>Saturazione delle linee</h3><div class="lines">${meters()}</div></div>
-        <div class="panel"><h3>Agenti</h3><div class="scroll"><table class="t"><thead><tr><th>Agente</th><th>Offerte attive</th><th>Fori</th><th>Prossima posa</th><th>Avvisi</th></tr></thead><tbody>${agRows || `<tr><td colspan="5" class="muted">Nessun agente.</td></tr>`}</tbody></table></div></div>
+        <div class="panel"><h3>Agenti</h3><div class="scroll"><table class="t"><thead><tr><th>Agente</th><th>Offerte attive</th><th>Fori</th><th>Avvisi</th></tr></thead><tbody>${agRows || `<tr><td colspan="4" class="muted">Nessun agente.</td></tr>`}</tbody></table></div></div>
         <div class="panel"><h3>Avvisi su tutte le offerte</h3>
           ${av.length ? av.map(r => avvisiOf(r).map(a => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>${esc(r.agente_nome)} · Offerta ${esc(r.numero)} · ${esc(r.cliente)}</b><span>${esc(a.t)}</span></div></div>`).join("")).join("")
             : `<div class="empty" style="padding:18px"><b>Nessun avviso</b></div>`}</div>
@@ -335,9 +320,9 @@
     if (!S.showDone) rows = rows.filter(isActive);
     return `<div class="pagehead"><h2>Tutte le offerte</h2><div class="sp"></div>${agentSelect()}
       <label class="chk"><input type="checkbox" id="showdone" ${S.showDone ? "checked" : ""}> Mostra concluse</label></div>
-      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t"><thead><tr><th>Agente</th><th>N° offerta</th><th>Cliente</th><th>Inserita</th><th>Fori</th><th>Fase</th><th>Richiesta</th><th>Posa prevista</th><th>Avvisi</th><th></th></tr></thead><tbody>
+      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t"><thead><tr><th>Agente</th><th>N° offerta</th><th>Cliente</th><th>Inserita</th><th>Fori</th><th>Richiesta</th><th>Posa indicativa</th><th>Avvisi</th><th></th></tr></thead><tbody>
       ${rows.slice().reverse().map(r => { const av = avvisiOf(r); return `<tr><td>${esc(r.agente_nome)}</td><td>${esc(r.numero)}</td><td>${esc(r.cliente)}</td><td class="num small">${esc(fmtDay(r.creata_il))}</td><td class="num">${r.r.fori}</td>
-        <td>${esc(phaseNow(r))}</td><td class="num">${r.r.req != null ? wl(r.r.req) : "—"}</td><td class="posa">${r.r.ok ? wl(r.r.posa) : "—"}</td>
+        <td class="num">${r.r.req != null ? wl(r.r.req) : "—"}</td><td class="posa">${r.r.ok ? wl(r.r.posa) : "—"}</td>
         <td>${av.length ? `<span class="badge ${av.some(a => a.bad) ? "bad" : "warn"}" title="${esc(av.map(a => a.t).join(" · "))}">${av.length}</span>` : '<span class="badge ok">ok</span>'}</td>
         <td><button class="btn sm danger" data-del="${r.id}">Elimina</button></td></tr>`; }).join("")}</tbody></table>`
         : `<div class="empty"><b>Nessuna offerta</b></div>`}</div>`;
@@ -510,8 +495,8 @@
       syncReq(bl.earliest);
       q("#checks").innerHTML = bl.msg ? `<div><span class="x">✗</span>${esc(bl.msg)}</div>` : "";
       q("#f-save").disabled = !!bl.msg;
-      res.innerHTML = `<div class="res"><div><small class="muted">Posa prevista</small><div class="posa">${r.ok ? pl.cal[r.posa].label : "non calcolabile"}</div></div>
-        <div class="small">Rilievo da ${pl.cal[r.rilFirst].label}<br>Produzione da ${pl.cal[r.pFirst] ? pl.cal[r.pFirst].label : "—"}</div>
+      res.innerHTML = `<div class="res"><div><small class="muted">Settimana indicativa di posa</small><div class="posa">${r.ok ? pl.cal[r.posa].label : "non calcolabile"}</div></div>
+        <div class="small" style="flex:1;min-width:180px">Stima non vincolante: la data definitiva la conferma l'ufficio produzione.</div>
         ${av.length ? `<div class="warns" style="flex-basis:100%">${av.map(a => `<div>⚠ ${esc(a)}</div>`).join("")}</div>` : ""}</div>`;
     }
     syncSeg(); update();
@@ -532,7 +517,7 @@
             try {
               await Api.salva({ id: row ? row.id : null, numero: form.numero.trim(), cliente: form.cliente.trim(), input: v.i, piano: E.freeze(pl.res[0], pl.C), versione: snap.occ.versione });
               close(); await refresh(true); render();
-              toast(`Offerta salvata — posa prevista ${pl.cal[pl.res[0].posa].label}`); return;
+              toast(`Offerta salvata — settimana indicativa di posa ${pl.cal[pl.res[0].posa].label}`); return;
             } catch (e) { if (!e.conflict) throw e; }
           }
           toast("Un altro agente ha appena occupato lo stesso slot. Riprova.", true);

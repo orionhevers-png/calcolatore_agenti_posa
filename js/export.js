@@ -18,7 +18,7 @@ window.exportExcel = async function (S) {
 
   /* ---- Cruscotto ---- */
   let ws = wb.addWorksheet("Cruscotto", { views: [{ showGridLines: false }] });
-  title(ws, "Cruscotto — situazione complessiva", `Settimana corrente ${wl(S.cur)} · generato il ${new Date().toLocaleDateString("it-IT")}`);
+  title(ws, "Cruscotto — situazione complessiva (stime indicative)", `Settimana corrente ${wl(S.cur)} · generato il ${new Date().toLocaleDateString("it-IT")}`);
   ws.addRow([]);
   ws.addRow(["Indicatore", "Valore"]); hdr(ws, 4);
   const conAv = act.filter(r => r.r.warnings.length || !r.r.ok);
@@ -30,27 +30,27 @@ window.exportExcel = async function (S) {
     const rr = ws.addRow([`${l.name} (${l.unit})`, Math.round(c * 10) / 10, Math.round(u * 10) / 10, c > 0 ? u / c : 0]); rr.getCell(4).numFmt = "0%";
   }
   ws.addRow([]);
-  const h3 = ws.addRow(["Agente", "Offerte attive", "Fori", "Prossima posa", "Avvisi"]); hdr(ws, h3.number);
+  const h3 = ws.addRow(["Agente", "Offerte attive", "Fori", "Avvisi"]); hdr(ws, h3.number);
   for (const a of S.profili.filter(p => p.ruolo === "agente")) {
     const m = act.filter(r => r.agente_id === a.id), nx = m.filter(r => r.r.ok).sort((x, y) => x.r.posa - y.r.posa)[0];
-    ws.addRow([a.nome, m.length, m.reduce((s, r) => s + r.r.fori, 0), nx ? wl(nx.r.posa) : "", m.filter(r => r.r.warnings.length).length]);
+    ws.addRow([a.nome, m.length, m.reduce((s, r) => s + r.r.fori, 0), m.filter(r => r.r.warnings.length).length]);
   }
   ws.columns = [{ width: 38 }, { width: 16 }, { width: 14 }, { width: 16 }, { width: 12 }];
 
   /* ---- Offerte ---- */
   ws = wb.addWorksheet("Offerte", { views: [{ state: "frozen", ySplit: 3, xSplit: 3 }] });
-  title(ws, "Tutte le offerte", "Priorità = ordine di inserimento. Le settimane sono in formato ISO (anno-Wnumero).");
-  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri PVC", "Scuri alu", "Fase attuale", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa prevista", "Ritardo (sett.)", "Avvisi"]);
+  title(ws, "Tutte le offerte", "STIMA INDICATIVA: le settimane non sono date confermate. Priorità = ordine di inserimento. Formato ISO (anno-Wnumero).");
+  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri PVC", "Scuri alu", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa indicativa", "Ritardo (sett.)", "Avvisi"]);
   hdr(ws, 3);
   for (const o of rows) {
-    const r = o.r, i = o.input, ph = r.ok && r.posa >= S.cur ? E.phaseAt(r, S.cur, cfg) : "";
+    const r = o.r, i = o.input;
     const d = new Date(o.creata_il);
     ws.addRow([o.agente_nome, o.numero, o.cliente, d, E.labelOfMs(E.mondayOfDate(d.getTime())), r.fori, i.antePvc || 0, i.alzPvc || 0, i.port || 0, i.anteAlu || 0, i.alzAlu || 0, i.scuriPvc || 0, i.scuriAlu != null ? i.scuriAlu : (i.scuri || 0),
-      !r.ok ? "Da verificare" : r.posa < S.cur ? "Conclusa" : GL[ph] || "In programma", r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", r.warnings.map(E.humanWarn).join(" | ")]);
+      r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", r.warnings.map(E.humanWarn).join(" | ")]);
   }
   ws.getColumn(4).numFmt = "dd/mm/yyyy";
-  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 9, 9, 22, 14, 12, 12, 14, 13, 13, 13, 11, 60][k]));
-  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 23 } };
+  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 9, 9, 14, 12, 12, 14, 13, 13, 13, 11, 60][k]));
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 22 } };
 
   /* ---- Gantt ---- */
   ws = wb.addWorksheet("Gantt", { views: [{ state: "frozen", ySplit: 3, xSplit: 4 }] });
