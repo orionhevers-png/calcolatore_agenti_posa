@@ -89,7 +89,7 @@
     const miss = window.APP_CONFIG && window.APP_CONFIG.SUPABASE_URL && demo;
     $app.innerHTML = `<div class="login"><form class="card" id="lf">
       <img src="assets/logo-longato.png" alt="Longato">
-      <h1>Stima tempi di posa</h1><p class="s">Accedi con il tuo account</p>
+      <h1>CALCOLATORE</h1><p class="s">Accedi con il tuo account</p>
       ${S.loginErr ? `<div class="errbox">${esc(S.loginErr)}</div>` : ""}
       ${miss ? `<div class="errbox">Libreria di collegamento non caricata: controlla la connessione e ricarica la pagina.</div>` : ""}
       <label class="field"><span>Email</span><input class="inp" id="lem" type="email" autocomplete="username" required ${demo ? 'placeholder="es. rossi@demo"' : ""}></label>
@@ -142,7 +142,7 @@
     return `${Api.mode === "demo" ? `<div class="demobar">Modalità demo — dati salvati solo in questo browser. <a href="#" id="dreset" style="color:inherit">Azzera demo</a></div>` : ""}
     <div class="top"><div class="in">
       <div class="bar"><img src="assets/logo-longato.png" alt="Longato">
-        <div class="tt">Stima tempi di posa<small>Serramenti PVC · Alluminio</small></div>
+        <div class="tt">CALCOLATORE<small>Serramenti PVC · Alluminio</small></div>
         <div class="sp"></div>
         <span class="wk">Settimana ${wl(S.cur)}</span>
         ${g ? `<button class="btn" id="xls">Scarica Excel</button>` : ""}
