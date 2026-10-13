@@ -40,17 +40,17 @@ window.exportExcel = async function (S) {
   /* ---- Offerte ---- */
   ws = wb.addWorksheet("Offerte", { views: [{ state: "frozen", ySplit: 3, xSplit: 3 }] });
   title(ws, "Tutte le offerte", "Priorità = ordine di inserimento. Le settimane sono in formato ISO (anno-Wnumero).");
-  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri", "Fase attuale", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa prevista", "Ritardo (sett.)", "Avvisi"]);
+  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri PVC", "Scuri alu", "Fase attuale", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa prevista", "Ritardo (sett.)", "Avvisi"]);
   hdr(ws, 3);
   for (const o of rows) {
     const r = o.r, i = o.input, ph = r.ok && r.posa >= S.cur ? E.phaseAt(r, S.cur, cfg) : "";
     const d = new Date(o.creata_il);
-    ws.addRow([o.agente_nome, o.numero, o.cliente, d, E.labelOfMs(E.mondayOfDate(d.getTime())), r.fori, i.antePvc || 0, i.alzPvc || 0, i.port || 0, i.anteAlu || 0, i.alzAlu || 0, i.scuri || 0,
-      !r.ok ? "Da verificare" : r.posa < S.cur ? "Conclusa" : GL[ph] || "In programma", r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", r.warnings.join(" | ")]);
+    ws.addRow([o.agente_nome, o.numero, o.cliente, d, E.labelOfMs(E.mondayOfDate(d.getTime())), r.fori, i.antePvc || 0, i.alzPvc || 0, i.port || 0, i.anteAlu || 0, i.alzAlu || 0, i.scuriPvc || 0, i.scuriAlu != null ? i.scuriAlu : (i.scuri || 0),
+      !r.ok ? "Da verificare" : r.posa < S.cur ? "Conclusa" : GL[ph] || "In programma", r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", r.warnings.map(E.humanWarn).join(" | ")]);
   }
   ws.getColumn(4).numFmt = "dd/mm/yyyy";
-  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 7, 22, 14, 12, 12, 14, 13, 13, 13, 11, 60][k]));
-  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 22 } };
+  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 9, 9, 22, 14, 12, 12, 14, 13, 13, 13, 11, 60][k]));
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 23 } };
 
   /* ---- Gantt ---- */
   ws = wb.addWorksheet("Gantt", { views: [{ state: "frozen", ySplit: 3, xSplit: 4 }] });
@@ -88,16 +88,16 @@ window.exportExcel = async function (S) {
   const kv = (k, v, u) => ws.addRow([k, v, u || ""]);
   ws.addRow([]); ws.addRow(["Capacità settimanale", "Valore", "Unità"]); hdr(ws, 4);
   kv("Tecnici rilievo", cfg.tecnici, "persone"); kv("Fori per tecnico", cfg.foriTecnico, "fori/sett."); kv("Capacità rilievo", cfg.tecnici * cfg.foriTecnico, "fori/sett.");
-  kv("Ante PVC", cfg.capPvc, "pezzi/sett."); kv("Alzanti PVC", cfg.capAlz, "pezzi/sett."); kv("Portoncini", cfg.capPor, "pezzi/sett."); kv("Alluminio", cfg.capAlu, "ore/sett.");
+  kv("Ante PVC", cfg.capPvc, "pezzi/sett."); kv("Alzanti PVC", cfg.capAlz, "pezzi/sett."); kv("Portoncini", cfg.capPor, "pezzi/sett."); kv("Alluminio", cfg.capAlu, "ore/sett."); kv("Reparto scuri", cfg.capScu, "ore/sett.");
   ws.addRow([]); const p2 = ws.addRow(["Tempi e parametri", "Valore", "Unità"]); hdr(ws, p2.number);
   kv("Rilievo → conferma ordine", cfg.tRil, "settimane"); kv("Conferma → ordine materiali", cfg.tCo, "settimane"); kv("Cuscinetto prima della posa", cfg.buffer, "settimane");
-  kv("Ore per anta alluminio", cfg.hAnteAlu, "ore/pezzo"); kv("Ore per alzante alluminio", cfg.hAlzAlu, "ore/pezzo"); kv("Ore per scuro", cfg.hScuri, "ore/pezzo");
+  kv("Ore per anta alluminio", cfg.hAnteAlu, "ore/pezzo"); kv("Ore per alzante alluminio", cfg.hAlzAlu, "ore/pezzo"); kv("Ore per scuro PVC", cfg.hScuriPvc, "ore/pezzo"); kv("Ore per scuro alluminio", cfg.hScuriAlu, "ore/pezzo");
   ws.addRow([]); const p3 = ws.addRow(["Coda iniziale", "Settimane", ""]); hdr(ws, p3.number);
   for (const l of E.LINES) kv(l.name, cfg.coda[l.key], "settimane");
   ws.addRow([]); const p4 = ws.addRow(["Chiusure — da", "a", "% capacità disponibile"]); hdr(ws, p4.number);
   for (const c of cfg.closures) { const r = ws.addRow([c.from, c.to || c.from, c.pct]); r.getCell(3).numFmt = "0%"; }
-  ws.addRow([]); const p5 = ws.addRow(["Storico capacità — valide dalla settimana", "Rilievo", "Ante PVC", "Alzanti", "Portoncini", "Alluminio"]); hdr(ws, p5.number);
-  for (const v of S.vlist) { const b = E.baseOf(v.cfg); ws.addRow([v.from === "2000-W01" ? "sempre" : v.from, b.ril, b.pvc, b.alz, b.por, b.alu]); }
+  ws.addRow([]); const p5 = ws.addRow(["Storico capacità — valide dalla settimana", "Rilievo", "Ante PVC", "Alzanti", "Portoncini", "Alluminio", "Reparto scuri"]); hdr(ws, p5.number);
+  for (const v of S.vlist) { const b = E.baseOf(v.cfg); ws.addRow([v.from === "2000-W01" ? "sempre" : v.from, b.ril, b.pvc, b.alz, b.por, b.alu, b.scu]); }
   ws.columns = [{ width: 42 }, { width: 14 }, { width: 22 }, { width: 12 }, { width: 12 }, { width: 12 }];
 
   /* ---- Tempi materiali ---- */

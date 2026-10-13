@@ -19,6 +19,18 @@
     const d = new Date(iso);
     return d.toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" }) + " · sett. " + E.labelOfMs(E.mondayOfDate(d.getTime()));
   };
+  const info = t => `<button type="button" class="info" data-info="${esc(t)}" aria-label="Spiegazione" aria-expanded="false">i</button>`;
+  document.addEventListener("click", e => {
+    const b = e.target.closest(".info"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const host = b.closest("h3,.field,.stat,.legend,.sub"); if (!host) return;
+    const head = host.matches("h3");
+    let box = head ? (host.nextElementSibling && host.nextElementSibling.classList.contains("infobox") ? host.nextElementSibling : null) : host.querySelector(":scope > .infobox");
+    if (box) { box.remove(); b.setAttribute("aria-expanded", "false"); return; }
+    box = document.createElement("div"); box.className = "infobox"; box.textContent = b.dataset.info;
+    if (head) host.insertAdjacentElement("afterend", box); else host.appendChild(box);
+    b.setAttribute("aria-expanded", "true");
+  });
   const num = x => (Math.round(x * 10) / 10).toString().replace(".", ",");
   const wl = i => (i == null ? "—" : E.labelOfIdx(S.C, i));
   const PH = { R: "Rilievo", E: "Rilievo anticipato", O: "Ordine materiali", A: "Attesa materiali", Q: "In coda di produzione", L: "In produzione", S: "Pronto, in attesa di posa", P: "Posa questa settimana" };
@@ -44,7 +56,8 @@
   function commessaOf(input, cliente) {
     return {
       id: "x", nome: cliente, fori: input.fori, antePvc: input.antePvc, alzPvc: input.alzPvc, port: input.port,
-      anteAlu: input.anteAlu, alzAlu: input.alzAlu, scuri: input.scuri, tipi: input.tipi, posaRich: input.posaRich || undefined
+      anteAlu: input.anteAlu, alzAlu: input.alzAlu,
+      scuriPvc: input.scuriPvc || 0, scuriAlu: input.scuriAlu != null ? input.scuriAlu : (input.scuri || 0), tipi: input.tipi, posaRich: input.posaRich || undefined
     };
   }
   function occMinus(righe, foot) {
@@ -96,10 +109,10 @@
   async function seedDemo() {
     if (Api.mode !== "demo" || !Api.empty()) return;
     const seeds = [
-      ["rossi@demo", "2026-118", "Condominio Aurora", { fori: 27, antePvc: 25, alzPvc: 1, port: 1, anteAlu: 0, alzAlu: 0, scuri: 0, tipi: { pvc: "std", vetri: "std", avvolgibili: "std", zanzariere: "std" }, posaRich: "" }],
-      ["rossi@demo", "2026-131", "Villa Brenta", { fori: 12, antePvc: 0, alzPvc: 0, port: 0, anteAlu: 10, alzAlu: 2, scuri: 6, tipi: { schuco: "fsd", anoxidal: "std", "scuri all": "std" }, posaRich: "" }],
-      ["bianchi@demo", "2026-122", "Ristrutturazione Zanon", { fori: 120, antePvc: 100, alzPvc: 8, port: 4, anteAlu: 6, alzAlu: 2, scuri: 0, tipi: { pvc: "fsd", vetri: "fsd", "alzanti ventana": "std" }, posaRich: "" }],
-      ["bianchi@demo", "2026-140", "Casa Moretti", { fori: 18, antePvc: 14, alzPvc: 2, port: 2, anteAlu: 0, alzAlu: 0, scuri: 0, tipi: { pvc: "std", monoblocchi: "std", "porte interne": "std" }, posaRich: "" }]
+      ["rossi@demo", "2026-118", "Condominio Aurora", { fori: 27, antePvc: 25, alzPvc: 1, port: 1, anteAlu: 0, alzAlu: 0, tipi: { pvc: "std", vetri: "std", avvolgibili: "std", zanzariere: "std" }, posaRich: "" }],
+      ["rossi@demo", "2026-131", "Villa Brenta", { fori: 12, antePvc: 0, alzPvc: 0, port: 0, anteAlu: 10, alzAlu: 2, scuriAlu: 6, tipi: { schuco: "fsd", anoxidal: "std", "scuri all": "std" }, posaRich: "" }],
+      ["bianchi@demo", "2026-122", "Ristrutturazione Zanon", { fori: 120, antePvc: 100, alzPvc: 8, port: 4, anteAlu: 6, alzAlu: 2, tipi: { pvc: "fsd", vetri: "fsd", "alzanti ventana": "std" }, posaRich: "" }],
+      ["bianchi@demo", "2026-140", "Casa Moretti", { fori: 18, antePvc: 14, alzPvc: 2, port: 2, anteAlu: 0, alzAlu: 0, tipi: { pvc: "std", monoblocchi: "std", "porte interne": "std" }, posaRich: "" }]
     ];
     const cur = S.me;
     for (const [em, numero, cliente, input] of seeds) {
@@ -160,7 +173,6 @@
     $app.querySelectorAll("[data-new]").forEach(b => (b.onclick = () => openForm(null)));
     $app.querySelectorAll("[data-edit]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.edit))));
     $app.querySelectorAll("[data-del]").forEach(b => (b.onclick = () => delOfferta(b.dataset.del)));
-    $app.querySelectorAll("[data-anticipa]").forEach(b => (b.onclick = () => anticipa(b.dataset.anticipa)));
     const sd = document.getElementById("showdone"); if (sd) sd.onchange = () => { S.showDone = sd.checked; render(); };
     const af = document.getElementById("agentf"); if (af) af.onchange = () => { S.agentF = af.value; render(); };
     const xl = document.getElementById("xls"); if (xl) xl.onclick = () => busy(async () => { try { await window.exportExcel(S); toast("Excel scaricato."); } catch (e) { toast("Errore nell'export: " + e.message, true); } });
@@ -175,29 +187,11 @@
     render();
   }
 
-  async function anticipa(id) {
-    const row = S.rows.find(r => r.id === id); if (!row) return;
-    await busy(async () => {
-      try {
-        for (let t = 0; t < 3; t++) {
-          const snap = await Api.fetchAll(S.me);
-          const pl = E.plan([commessaOf(row.input, row.cliente)], S.cfg, Date.now(), { occ: occMinus(snap.occ.righe, row.piano.foot), versions: S.vlist });
-          try {
-            await Api.salva({ id, numero: row.numero, cliente: row.cliente, input: row.input, piano: E.freeze(pl.res[0], pl.C), versione: snap.occ.versione });
-            await refresh(true); toast("Posa anticipata e salvata."); return;
-          } catch (e) { if (!e.conflict) throw e; }
-        }
-        toast("Dati cambiati nel frattempo, riprova.", true);
-      } catch (e) { toast(e.message, true); }
-    });
-    render();
-  }
-
   /* ---------- blocchi comuni ---------- */
   function avvisiOf(row) {
     const out = [];
-    if (!row.r.ok) out.push({ t: "Posa non calcolabile: capacità esaurita entro il calendario.", bad: true });
-    for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: w, bad: /oltre la data richiesta/.test(w) });
+    if (!row.r.ok) out.push({ t: E.humanWarn("orizzonte"), bad: true });
+    for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
     return out;
   }
   const stepsOf = row => {
@@ -234,9 +228,9 @@
     return `<div class="pagehead"><h2>Ciao ${esc(S.me.nome.split(" ")[0])}</h2><div class="sp"></div>
         <button class="btn pri" data-new>+ Nuova offerta</button></div>
       <div class="stats">
-        <div class="stat"><div class="l">Offerte attive</div><div class="v num">${act.length}</div></div>
-        <div class="stat ${conAv.length ? "warn" : "good"}"><div class="l">Con avvisi</div><div class="v num">${conAv.length}</div></div>
-        <div class="stat"><div class="l">Prossima posa</div><div class="v sm num">${prossima ? wl(prossima.r.posa) : "—"}</div>${prossima ? `<div class="n">${esc(prossima.cliente)}</div>` : ""}</div>
+        <div class="stat"><div class="l">Offerte attive ${info("Offerte per cui la posa non è ancora stata eseguita.")}</div><div class="v num">${act.length}</div></div>
+        <div class="stat ${conAv.length ? "warn" : "good"}"><div class="l">Con avvisi ${info("Offerte con una segnalazione, ad esempio un ritardo. Il dettaglio è nel riquadro a destra.")}</div><div class="v num">${conAv.length}</div></div>
+        <div class="stat"><div class="l">Prossima posa ${info("La prima settimana di posa tra le tue offerte attive.")}</div><div class="v sm num">${prossima ? wl(prossima.r.posa) : "—"}</div>${prossima ? `<div class="n">${esc(prossima.cliente)}</div>` : ""}</div>
       </div>
       <div class="cols"><div>
         <div class="toolbar"><h3 style="margin:0">Le tue offerte</h3><div style="flex:1"></div>
@@ -262,7 +256,7 @@
     return `<div class="pagehead"><h2>Gantt${g ? " — tutti gli agenti" : " — le tue offerte"}</h2><div class="sp"></div>
       ${g ? agentSelect() : ""}</div>
       ${rows.length ? `<div class="gwrap"><table class="g"><thead><tr><th class="sl">Offerta</th><th class="sl2">Posa</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <div class="legend">${Object.entries(GL).map(([k, l]) => `<span><i class="ph-${k}"></i>${k} · ${l}</span>`).join("")}</div>`
+      <div class="legend">${info("Ogni riga è un'offerta e ogni colonna una settimana. I colori mostrano cosa succede in ciascuna settimana, dal rilievo fino alla posa (P). La settimana corrente è evidenziata.")}${Object.entries(GL).map(([k, l]) => `<span><i class="ph-${k}"></i>${k} · ${l}</span>`).join("")}</div>`
         : `<div class="panel empty"><b>Nessuna offerta da mostrare</b>Le offerte attive compariranno qui.</div>`}`;
   }
   function agentSelect() {
@@ -283,7 +277,7 @@
       }).join("");
     }).join("");
     return `<div class="pagehead"><h2>Calendario slot liberi</h2></div>
-      <p class="sub">Quanta capacità è ancora libera in ogni settimana, tenuto conto di tutte le offerte già inserite da tutti gli agenti. Più la barra è piena, più il periodo è occupato: una nuova offerta verrà spostata alla prima settimana con spazio.</p>
+      <p class="sub">${info("Verde: c'è molto spazio, puoi promettere la data. Giallo: spazio ridotto. Rosso o «Pieno»: quella settimana è già occupata da altre offerte.")} Quanta capacità è ancora libera in ogni settimana, tenuto conto di tutte le offerte già inserite da tutti gli agenti. Più la barra è piena, più il periodo è occupato: una nuova offerta verrà spostata alla prima settimana con spazio.</p>
       <div class="panel scroll" style="padding:0"><div class="cg"><div class="h">Settimana</div>${L.map(l => `<div class="h">${l.name}</div>`).join("")}${cells}</div></div>
       <div class="legend"><span><b class="free" style="color:var(--good)">Verde</b> molto spazio</span><span><b style="color:var(--warn)">Giallo</b> spazio ridotto</span><span><b style="color:var(--bad)">Rosso</b> quasi pieno</span><span>chiuso = ferie / chiusura</span></div>`;
   }
@@ -294,17 +288,6 @@
     for (const l of E.LINES) for (let w = S.cur; w <= E.NW; w++) {
       const ex = P.load[l.key][w] - P.cap[l.key][w];
       if (ex > 0.01) out.push({ l, w, ex });
-    }
-    return out;
-  }
-  function anticipabili() {
-    const out = [];
-    for (const row of S.rows) {
-      if (!isActive(row) || !row.r.ok || row.r.posa <= S.cur) continue;
-      if (row.r.req != null && (row.r.late == null || row.r.late <= 0)) continue;
-      const pl = E.plan([commessaOf(row.input, row.cliente)], S.cfg, S.today, { occ: occMinus(S.occ.righe, row.piano.foot), versions: S.vlist });
-      const n = pl.res[0];
-      if (n.ok && n.posa < row.r.posa) out.push({ row, nuova: n.posa });
     }
     return out;
   }
@@ -319,7 +302,7 @@
   }
   function vPanoramica() {
     const act = S.rows.filter(isActive), av = act.filter(r => avvisiOf(r).length);
-    const sov = sovraccarichi(), ant = anticipabili();
+    const sov = sovraccarichi();
     const ag = S.profili.filter(p => p.ruolo === "agente");
     const agRows = ag.map(a => {
       const mine = act.filter(r => r.agente_id === a.id), nx = mine.filter(r => r.r.ok).sort((x, y) => x.r.posa - y.r.posa)[0];
@@ -331,8 +314,7 @@
         <div class="stat"><div class="l">Offerte attive</div><div class="v num">${act.length}</div></div>
         <div class="stat"><div class="l">Fori in lavorazione</div><div class="v num">${act.reduce((s, r) => s + r.r.fori, 0)}</div></div>
         <div class="stat ${av.length ? "warn" : "good"}"><div class="l">Offerte con avvisi</div><div class="v num">${av.length}</div></div>
-        <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche</div><div class="v num">${new Set(sov.map(s => s.w)).size}</div></div>
-        <div class="stat ${ant.length ? "warn" : ""}"><div class="l">Pose anticipabili</div><div class="v num">${ant.length}</div></div>
+        <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane in cui il lavoro già assegnato supera la capacità, ad esempio dopo una riduzione di capacità. Le offerte confermate non si spostano da sole.")}</div><div class="v num">${new Set(sov.map(s => s.w)).size}</div></div>
       </div>
       <div class="cols"><div>
         <div class="panel"><h3>Saturazione delle linee</h3><div class="lines">${meters()}</div></div>
@@ -341,9 +323,6 @@
           ${av.length ? av.map(r => avvisiOf(r).map(a => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>${esc(r.agente_nome)} · Offerta ${esc(r.numero)} · ${esc(r.cliente)}</b><span>${esc(a.t)}</span></div></div>`).join("")).join("")
             : `<div class="empty" style="padding:18px"><b>Nessun avviso</b></div>`}</div>
       </div><aside>
-        <div class="panel"><h3>Pose anticipabili</h3><p class="sub">Offerte che oggi potrebbero andare prima (ad es. dopo una cancellazione). Non si spostano da sole.</p>
-          ${ant.length ? ant.map(({ row, nuova }) => `<div class="alert"><i style="background:var(--accent)"></i><div style="flex:1"><b>${esc(row.agente_nome)} · ${esc(row.numero)} · ${esc(row.cliente)}</b><span>da ${wl(row.r.posa)} a ${wl(nuova)}</span><br><button class="btn sm" style="margin-top:6px" data-anticipa="${row.id}">Anticipa</button></div></div>`).join("")
-            : `<div class="empty" style="padding:18px"><b>Nessuna</b>Tutte le pose sono già alla prima data possibile.</div>`}</div>
         <div class="panel"><h3>Sovraccarichi</h3><p class="sub">Settimane in cui il carico supera la capacità (ad es. dopo una riduzione di capacità).</p>
           ${sov.length ? sov.slice(0, 12).map(s => `<div class="alert bad"><i></i><div><b>${S.P.cal[s.w].label} · ${s.l.name}</b><span>+${num(s.ex)} ${s.l.unit} oltre la capacità</span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Nessuno</b></div>`}</div>
       </aside></div>`;
@@ -380,19 +359,19 @@
   /* ---------- GESTORE: impostazioni ---------- */
   function vImpostazioni() {
     const c = S.cfg, tipi = E.tipiOf(c), curLbl = wl(S.cur);
-    const f = (k, l, u, step) => `<label class="field"><span>${l}</span><input class="inp" type="number" min="0" step="${step || 1}" data-k="${k}" value="${c[k]}"><span class="u">${u || ""}</span></label>`;
+    const f = (k, l, u, step, tip) => `<label class="field"><span>${l}${tip ? " " + info(tip) : ""}</span><input class="inp" type="number" min="0" step="${step || 1}" data-k="${k}" value="${c[k]}"><span class="u">${u || ""}</span></label>`;
     const fc = (k, l, u) => `<label class="field"><span>${l}</span><input class="inp" type="number" min="0" step="1" data-c="${k}" value="${c.coda[k]}"><span class="u">${u}</span></label>`;
     return `<div class="settings"><div class="pagehead"><h2>Impostazioni</h2><div class="sp"></div><button class="btn pri" id="savecfg">Salva impostazioni</button></div>
       <div class="panel"><h3>Capacità settimanale</h3>
         <p class="sub">I nuovi valori valgono dalla settimana scelta in poi. Le offerte già confermate non vengono ricalcolate: se la nuova capacità è inferiore al carico già assegnato, la settimana compare tra i sovraccarichi.</p>
         <div class="setgrid"><label class="field"><span>Valide dalla settimana</span><input class="inp" id="validafrom" value="${curLbl}" placeholder="2026-W45"><span class="u">formato 2026-W45</span></label>
         ${f("tecnici", "Tecnici rilievo", "persone")}${f("foriTecnico", "Fori per tecnico", "fori / settimana", 0.5)}
-        ${f("capPvc", "Ante PVC", "pezzi / settimana")}${f("capAlz", "Alzanti PVC", "pezzi / settimana")}${f("capPor", "Portoncini", "pezzi / settimana")}${f("capAlu", "Alluminio", "ore / settimana")}</div></div>
+        ${f("capPvc", "Ante PVC", "pezzi / settimana")}${f("capAlz", "Alzanti PVC", "pezzi / settimana")}${f("capPor", "Portoncini", "pezzi / settimana")}${f("capAlu", "Alluminio", "ore / settimana")}${f("capScu", "Reparto scuri (PVC e alluminio)", "ore / settimana", 1, "Ore di lavoro a settimana del reparto scuri, in comune tra scuri PVC e alluminio.")}</div></div>
       <div class="panel"><h3>Tempi e parametri</h3><p class="sub">Si applicano alle offerte nuove o modificate da ora in avanti.</p>
-        <div class="setgrid">${f("tRil", "Rilievo → conferma ordine", "settimane")}${f("tCo", "Conferma → ordine materiali", "settimane")}${f("buffer", "Cuscinetto prima della posa", "settimane")}
-        ${f("hAnteAlu", "Ore per anta alluminio", "ore / pezzo", 0.1)}${f("hAlzAlu", "Ore per alzante alluminio", "ore / pezzo", 0.1)}${f("hScuri", "Ore per scuro", "ore / pezzo", 0.1)}</div>
-        <h3 style="margin-top:18px">Coda iniziale (settimane già occupate)</h3>
-        <div class="setgrid">${fc("ril", "Rilievo", "settimane")}${fc("pvc", "Ante PVC", "settimane")}${fc("alz", "Alzanti PVC", "settimane")}${fc("por", "Portoncini", "settimane")}${fc("alu", "Alluminio", "settimane")}</div></div>
+        <div class="setgrid">${f("tRil", "Rilievo → conferma ordine", "settimane", 1, "Tempo che passa tra il rilievo e la conferma d'ordine del cliente.")}${f("tCo", "Conferma → ordine materiali", "settimane", 1, "Tempo tra la conferma e l'invio dell'ordine ai fornitori.")}${f("buffer", "Cuscinetto prima della posa", "settimane", 1, "Settimane di margine tra la fine della produzione e la posa.")}
+        ${f("hAnteAlu", "Ore per anta alluminio", "ore / pezzo", 0.1)}${f("hAlzAlu", "Ore per alzante alluminio", "ore / pezzo", 0.1)}${f("hScuriPvc", "Ore per scuro PVC", "ore / pezzo", 0.1)}${f("hScuriAlu", "Ore per scuro alluminio", "ore / pezzo", 0.1)}</div>
+        <h3 style="margin-top:18px">Coda iniziale (settimane già occupate) ${info("Settimane di lavoro già in coda in ogni reparto prima delle offerte inserite nel sistema.")}</h3>
+        <div class="setgrid">${fc("ril", "Rilievo", "settimane")}${fc("pvc", "Ante PVC", "settimane")}${fc("alz", "Alzanti PVC", "settimane")}${fc("por", "Portoncini", "settimane")}${fc("alu", "Alluminio", "settimane")}${fc("scu", "Reparto scuri", "settimane")}</div></div>
       <div class="panel"><h3>Chiusure</h3><p class="sub">Percentuale di capacità disponibile: 0 = chiuso, 50 = mezza settimana.</p>
         <div id="cls">${c.closures.map(clRow).join("")}</div><button class="btn sm" id="addcl">+ Aggiungi chiusura</button></div>
       <div class="panel"><h3>Tempi materiali (settimane)</h3><p class="sub">«Prima del rilievo» = materiale da ordinare prima del rilievo (monoblocchi, cassonetti ALPAC, falsitelai).</p>
@@ -400,8 +379,8 @@
         ${E.CATS.map((cat, ci) => `<div class="cat-h">${cat}</div>` + tipi.filter(t => t.cat === ci).map(t => `<div>${esc(t.name)}</div>
           <input class="inp" type="number" min="0" data-t="${esc(t.name)}" data-f="std" value="${t.std}"><input class="inp" type="number" min="0" data-t="${esc(t.name)}" data-f="fsd" value="${t.fsd}">
           <label class="chk"><input type="checkbox" data-t="${esc(t.name)}" data-f="early" ${t.early ? "checked" : ""}></label>`).join("")).join("")}</div></div>
-      <div class="panel"><h3>Storico</h3><div class="scroll"><table class="t"><thead><tr><th>Salvato il</th><th>Capacità valide da</th><th>Rilievo</th><th>PVC</th><th>Alz.</th><th>Port.</th><th>Alu</th></tr></thead><tbody>
-      ${S.vlist.map((v, i) => { const b = E.baseOf(v.cfg), meta = S.versions[i]; return `<tr><td class="small">${meta ? new Date(meta.creato_il).toLocaleDateString("it-IT") : "predefinite"}</td><td class="num">${v.from === "2000-W01" ? "sempre" : v.from}</td><td class="num">${b.ril}</td><td class="num">${b.pvc}</td><td class="num">${b.alz}</td><td class="num">${b.por}</td><td class="num">${b.alu}</td></tr>`; }).reverse().join("")}</tbody></table></div></div></div>`;
+      <div class="panel"><h3>Storico</h3><div class="scroll"><table class="t"><thead><tr><th>Salvato il</th><th>Capacità valide da</th><th>Rilievo</th><th>PVC</th><th>Alz.</th><th>Port.</th><th>Alu</th><th>Scuri</th></tr></thead><tbody>
+      ${S.vlist.map((v, i) => { const b = E.baseOf(v.cfg), meta = S.versions[i]; return `<tr><td class="small">${meta ? new Date(meta.creato_il).toLocaleDateString("it-IT") : "predefinite"}</td><td class="num">${v.from === "2000-W01" ? "sempre" : v.from}</td><td class="num">${b.ril}</td><td class="num">${b.pvc}</td><td class="num">${b.alz}</td><td class="num">${b.por}</td><td class="num">${b.alu}</td><td class="num">${b.scu}</td></tr>`; }).reverse().join("")}</tbody></table></div></div></div>`;
   }
   const clRow = c => `<div class="clrow"><input class="inp" data-cl="from" value="${esc(c.from)}" placeholder="2026-W52"><input class="inp" data-cl="to" value="${esc(c.to || c.from)}" placeholder="2026-W52"><input class="inp" type="number" min="0" max="100" data-cl="pct" value="${Math.round((c.pct || 0) * 100)}"><button class="btn sm danger" data-rmcl type="button">✕</button></div>`;
   function bindSettings() {
@@ -447,28 +426,28 @@
     const editing = !!row, inp = row ? row.input : {};
     const form = {
       numero: row ? row.numero : "", cliente: row ? row.cliente : "",
-      fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuri: inp.scuri || "",
+      fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuriPvc: inp.scuriPvc || "", scuriAlu: inp.scuriAlu || inp.scuri || "",
       tipi: Object.assign({}, inp.tipi || {}), posaRich: inp.posaRich || ""
     };
     S.drawer = { row, form, tried: false };
     const tipi = E.tipiOf(S.cfg);
     const weeks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 70); w++) weeks.push(S.P.cal[w].label);
     if (form.posaRich && !weeks.includes(form.posaRich)) weeks.unshift(form.posaRich);
-    const nf = (k, l, ph) => `<label class="field"><span>${l}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${form[k]}" placeholder="${ph || "0"}"></label>`;
+    const nf = (k, l, ph, tip) => `<label class="field"><span>${l}${tip ? " " + info(tip) : ""}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${form[k]}" placeholder="${ph || "0"}"></label>`;
     const html = `<div class="scrim" data-x></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Offerta">
       <header><div class="top2"><h2>${editing ? "Modifica offerta" : "Nuova offerta"}</h2><button class="btn sm" data-x type="button">Chiudi</button></div>
-        <div class="f2"><label class="field req"><span>N° offerta</span><input class="inp" id="f-num" value="${esc(form.numero)}" autocomplete="off"></label>
+        <div class="f2"><label class="field req"><span>N° offerta ${info("Il numero dell'offerta come lo trovi sul preventivo.")}</span><input class="inp" id="f-num" value="${esc(form.numero)}" autocomplete="off"></label>
         <label class="field req"><span>Nome cliente</span><input class="inp" id="f-cli" value="${esc(form.cliente)}" autocomplete="off"></label></div>
         <div class="stamp">${editing ? "Inserita il" : "Verrà registrata il"} <b>${esc(fmtDay(row ? row.creata_il : new Date().toISOString()))}</b></div></header>
       <div class="body">
-        <h3>Fori e serramenti</h3>
-        <div class="fgrid"><label class="field req"><span>Numero fori</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${form.fori}" placeholder="0"></label></div>
-        <div class="fgrid">${nf("antePvc", "Ante PVC")}${nf("alzPvc", "Alzanti PVC")}${nf("port", "Portoncini")}${nf("anteAlu", "Ante alluminio")}${nf("alzAlu", "Alzanti alluminio")}${nf("scuri", "Scuri")}</div>
+        <h3>Fori e serramenti ${info("Il totale dei serramenti (ante, alzanti e portoncini, PVC e alluminio) deve essere esattamente uguale ai fori. Gli scuri non si contano.")}</h3>
+        <div class="fgrid"><label class="field req"><span>Numero fori ${info("Il numero totale di aperture da sostituire in questa offerta. Deve essere uguale al totale dei serramenti qui sotto.")}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${form.fori}" placeholder="0"></label></div>
+        <div class="fgrid">${nf("antePvc", "Ante PVC", "", "Quante ante in PVC ci sono nell'offerta.")}${nf("alzPvc", "Alzanti PVC", "", "Quanti alzanti scorrevoli in PVC.")}${nf("port", "Portoncini", "", "Quanti portoncini d'ingresso.")}${nf("anteAlu", "Ante alluminio", "", "Quante ante in alluminio.")}${nf("alzAlu", "Alzanti alluminio", "", "Quanti alzanti scorrevoli in alluminio.")}${nf("scuriPvc", "Scuri PVC", "", "Quanti scuri in PVC. Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}${nf("scuriAlu", "Scuri alluminio", "", "Quanti scuri in alluminio. Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}</div>
         <div class="sumbox" id="sum"></div>
-        <h3>Tipologie ordinate</h3><p class="sub">Per ogni tipologia presente indica se è <b>standard</b> o <b>fuori standard</b>. Lascia «—» se non c'è. Serve almeno una tipologia.</p>
+        <h3>Tipologie ordinate ${info("Standard: misure e finiture di catalogo. Fuori standard: misure, forme o lavorazioni speciali, con tempi di consegna dei materiali più lunghi. Se una tipologia non è nell'offerta lascia «—».")}</h3><p class="sub">Per ogni tipologia presente indica se è <b>standard</b> o <b>fuori standard</b>. Lascia «—» se non c'è. Serve almeno una tipologia.</p>
         ${E.CATS.map((cat, ci) => `<div class="cat"><h4>${cat}</h4>${tipi.filter(t => t.cat === ci).map(t => `<div class="trow"><div class="n">${esc(t.name)}</div>
           <div class="seg" data-t="${esc(t.name)}"><button type="button" data-v="" aria-pressed="false">—</button><button type="button" data-v="std" aria-pressed="false">Standard</button><button type="button" class="fsd" data-v="fsd" aria-pressed="false">Fuori std</button></div></div>`).join("")}</div>`).join("")}
-        <h3>Posa richiesta (facoltativa)</h3>
+        <h3>Posa richiesta (facoltativa) ${info("Se il cliente vuole la posa in una settimana precisa, scegli qui. Le settimane troppo vicine sono grigie e non si possono scegliere. Se non c'è fretta lascia «Prima possibile».")}</h3>
         <label class="field"><span>Settimana desiderata</span><select class="inp" id="f-req"><option value="">Prima possibile</option>${weeks.map(w => `<option value="${w}" ${w === form.posaRich ? "selected" : ""}>${w}</option>`).join("")}</select></label>
       </div>
       <footer><div id="checks" class="checks"></div><div id="res"></div>
@@ -488,7 +467,7 @@
 
     function inputOf() {
       const n = k => Math.max(0, Math.floor(Number(form[k]) || 0));
-      return { fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuri: n("scuri"), tipi: { ...form.tipi }, posaRich: form.posaRich || "" };
+      return { fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuriPvc: n("scuriPvc"), scuriAlu: n("scuriAlu"), tipi: { ...form.tipi }, posaRich: form.posaRich || "" };
     }
     function validate() {
       const i = inputOf(), tot = sumSerr(i), errs = [], ok = [];
@@ -500,7 +479,22 @@
       const nt = Object.keys(i.tipi).length; (nt > 0 ? ok : errs).push(nt > 0 ? `Tipologie selezionate: ${nt}` : "Selezionare almeno una tipologia (standard o fuori standard)");
       return { i, tot, errs, ok };
     }
-    let lastPlan = null;
+    let lastPlan = null, lastEarliest = "?";
+    // prima settimana di posa possibile (senza data richiesta) e eventuale blocco se la richiesta non è disponibile
+    function blockOf(i, occ) {
+      const p0 = E.plan([commessaOf({ ...i, posaRich: "" }, form.cliente)], S.cfg, Date.now(), { occ, versions: S.vlist });
+      const e = p0.res[0].ok ? p0.cal[p0.res[0].posa].label : null;
+      let msg = "";
+      if (i.posaRich) {
+        const p1 = E.plan([commessaOf(i, form.cliente)], S.cfg, Date.now(), { occ, versions: S.vlist }).res[0];
+        if (p1.ok && p1.late > 0) msg = `La posa in ${i.posaRich} non è disponibile${e ? ` (prima settimana possibile: ${e})` : ""}. Scegli una settimana più avanti oppure «Prima possibile».`;
+      }
+      return { earliest: e, msg };
+    }
+    function syncReq(earliest) {
+      if (earliest === lastEarliest) return; lastEarliest = earliest;
+      q("#f-req").innerHTML = `<option value="">Prima possibile</option>` + weeks.map(w => { const no = earliest && w < earliest; return `<option value="${w}" ${w === form.posaRich ? "selected" : ""} ${no ? "disabled" : ""}>${w}${no ? " — non disponibile" : ""}</option>`; }).join("");
+    }
     function update() {
       const v = validate(), i = v.i;
       const sum = q("#sum"); const diff = v.tot - i.fori;
@@ -511,7 +505,11 @@
       if (v.errs.length) { res.innerHTML = ""; lastPlan = null; return; }
       const occ = row ? occMinus(S.occ.righe, row.piano.foot) : S.occ.righe;
       const pl = E.plan([commessaOf(i, form.cliente)], S.cfg, Date.now(), { occ, versions: S.vlist });
-      lastPlan = pl; const r = pl.res[0], av = r.warnings;
+      lastPlan = pl; const r = pl.res[0];
+      const bl = blockOf(i, occ), av = r.warnings.filter(a => !/oltre la data richiesta/.test(a)).map(E.humanWarn);
+      syncReq(bl.earliest);
+      q("#checks").innerHTML = bl.msg ? `<div><span class="x">✗</span>${esc(bl.msg)}</div>` : "";
+      q("#f-save").disabled = !!bl.msg;
       res.innerHTML = `<div class="res"><div><small class="muted">Posa prevista</small><div class="posa">${r.ok ? pl.cal[r.posa].label : "non calcolabile"}</div></div>
         <div class="small">Rilievo da ${pl.cal[r.rilFirst].label}<br>Produzione da ${pl.cal[r.pFirst] ? pl.cal[r.pFirst].label : "—"}</div>
         ${av.length ? `<div class="warns" style="flex-basis:100%">${av.map(a => `<div>⚠ ${esc(a)}</div>`).join("")}</div>` : ""}</div>`;
@@ -529,6 +527,8 @@
             const occ = row ? occMinus(snap.occ.righe, row.piano.foot) : snap.occ.righe;
             const pl = E.plan([commessaOf(v.i, form.cliente)], S.cfg, Date.now(), { occ, versions: S.vlist });
             if (!pl.res[0].ok) { toast("Capacità esaurita entro il calendario: non è possibile calcolare la posa.", true); return; }
+            const bl = blockOf(v.i, occ);
+            if (bl.msg) { toast(bl.msg, true); update(); return; }
             try {
               await Api.salva({ id: row ? row.id : null, numero: form.numero.trim(), cliente: form.cliente.trim(), input: v.i, piano: E.freeze(pl.res[0], pl.C), versione: snap.occ.versione });
               close(); await refresh(true); render();

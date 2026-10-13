@@ -16,14 +16,15 @@ const LINES = [
   { key: "pvc", name: "Ante PVC", unit: "pz" },
   { key: "alz", name: "Alzanti PVC", unit: "pz" },
   { key: "por", name: "Portoncini", unit: "pz" },
-  { key: "alu", name: "Alluminio", unit: "ore" }
+  { key: "alu", name: "Alluminio", unit: "ore" },
+  { key: "scu", name: "Reparto scuri", unit: "ore" }
 ];
 
 function defaultCfg() {
   return {
-    tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200,
-    tRil: 2, tCo: 2, buffer: 2, hAnteAlu: 1, hAlzAlu: 1, hScuri: 1,
-    coda: { ril: 0, pvc: 0, alz: 0, por: 0, alu: 0 },
+    tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200, capScu: 64,
+    tRil: 2, tCo: 2, buffer: 2, hAnteAlu: 1, hAlzAlu: 1, hScuriPvc: 3, hScuriAlu: 4.5,
+    coda: { ril: 0, pvc: 0, alz: 0, por: 0, alu: 0, scu: 0 },
     closures: [
       { from: "2026-W52", to: "2026-W52", pct: 0.5 }, { from: "2027-W01", to: "2027-W01", pct: 0 },
       { from: "2027-W32", to: "2027-W33", pct: 0 }, { from: "2027-W51", to: "2027-W51", pct: 0.5 },
@@ -83,7 +84,7 @@ function buildCalendar(cfg, todayMs) {
 }
 
 function baseOf(c) {
-  return { ril: c.tecnici * c.foriTecnico, pvc: c.capPvc, alz: c.capAlz, por: c.capPor, alu: c.capAlu };
+  return { ril: c.tecnici * c.foriTecnico, pvc: c.capPvc, alz: c.capAlz, por: c.capPor, alu: c.capAlu, scu: c.capScu };
 }
 // opts.occ      = [{r:'ril', s:'2026-W45', c:12}]  carico già occupato da altre offerte (anonimo)
 // opts.versions = [{from:'2026-W40', cfg}]          capacità valide da una certa settimana
@@ -141,22 +142,23 @@ function plan(commesse, cfg, todayMs, opts) {
     const fori = +c.fori || 0;
     const need = {
       pvc: +c.antePvc || 0, alz: +c.alzPvc || 0, por: +c.port || 0,
-      alu: (+c.anteAlu || 0) * cfg.hAnteAlu + (+c.alzAlu || 0) * cfg.hAlzAlu + (+c.scuri || 0) * cfg.hScuri + (+c.oreExtra || 0)
+      alu: (+c.anteAlu || 0) * cfg.hAnteAlu + (+c.alzAlu || 0) * cfg.hAlzAlu + (+c.oreExtra || 0),
+      scu: (+c.scuriPvc || 0) * cfg.hScuriPvc + (+c.scuriAlu || 0) * cfg.hScuriAlu
     };
     if (fori === 0) r.warnings.push("Inserire n° fori.");
     if (nSel + need.pvc + need.alz + need.por + need.alu === 0) r.warnings.push("Selezionare tipologie / quantità.");
-    const E = s + early, G = Math.max(E, cur + cfg.coda.ril);
+    const E = s + early, G = Math.max(E, cur + 1 + cfg.coda.ril); // il rilievo parte dalla settimana successiva all'inserimento
     const ril = fori > 0 ? alloc("ril", fori, G) : { first: G, last: G, fit: true, parts: [] };
-    const codaRil = fori > 0 && ril.first != null ? Math.max(0, ril.first - E) : 0;
+    const codaRil = fori > 0 && ril.first != null ? Math.max(0, ril.first - Math.max(E, cur + 1)) : 0;
     if (codaRil > 0) r.warnings.push(`Coda rilievo +${codaRil} sett.`);
     let dur = 1;
-    for (const k of ["pvc", "alz", "por", "alu"]) if (need[k] > 0 && base[k] > 0) dur = Math.max(dur, Math.ceil(need[k] / base[k]));
+    for (const k of ["pvc", "alz", "por", "alu", "scu"]) if (need[k] > 0 && base[k] > 0) dur = Math.max(dur, Math.ceil(need[k] / base[k]));
     const AQ = req != null ? req - cfg.buffer - dur + 1 : 0;
     const L = (ril.last ?? G) + cfg.tRil;
     const M = Math.max(L + cfg.tCo, AQ - main), N = M + main;
     const firsts = [], lasts = []; let fit = ril.fit;
     const foot = { ril: ril.parts };
-    for (const k of ["pvc", "alz", "por", "alu"]) {
+    for (const k of ["pvc", "alz", "por", "alu", "scu"]) {
       if (need[k] <= 0) continue;
       const a = alloc(k, need[k], Math.max(N, cur + cfg.coda[k]));
       fit = fit && a.fit; foot[k] = a.parts;
@@ -180,6 +182,18 @@ function plan(commesse, cfg, todayMs, opts) {
 
 // ---- congelamento: l'offerta confermata viene salvata con settimane in formato etichetta (2026-W45),
 // così non si sposta quando passa il tempo né quando cambiano le altre offerte.
+const plur = (n, a, b) => n + " " + (n === 1 ? a : b);
+function humanWarn(w) {
+  let m;
+  if ((m = /Coda rilievo \+(\d+)/.exec(w))) return `Il rilievo parte ${plur(+m[1], "settimana", "settimane")} più tardi perché i tecnici sono già impegnati con altre offerte.`;
+  if ((m = /Produzione in coda \/ satura \+(\d+)/.exec(w))) return `La produzione parte ${plur(+m[1], "settimana", "settimane")} più tardi perché i reparti sono già pieni.`;
+  if ((m = /Posa oltre la data richiesta \+(\d+)/.exec(w))) return `La posa slitta di ${plur(+m[1], "settimana", "settimane")} rispetto alla data richiesta dal cliente.`;
+  if (/orizzonte/.test(w)) return "Non c'è abbastanza disponibilità nei prossimi due anni per calcolare la posa.";
+  if (/Inserire n° fori/.test(w)) return "Indica il numero di fori.";
+  if (/Selezionare tipologie/.test(w)) return "Seleziona almeno una tipologia o una quantità.";
+  if (/non valida/.test(w)) return "La settimana indicata non è valida.";
+  return w;
+}
 const IDX_FIELDS = ["s", "E", "rilFirst", "rilLast", "L", "M", "N", "pFirst", "pLast", "AI", "posa", "req"];
 function labelOfIdx(C, i) { return labelOfMs(C.start + (i - 1) * 7 * DAY); }
 function freeze(r, C) {
@@ -207,6 +221,6 @@ function phaseAt(r, w, cfg) {
   if (r.early > 0 && w >= r.s && w < r.rilFirst) return "E";
   return "";
 }
-const Engine = { plan, freeze, thaw, defaultCfg, mergeCfg, tipiOf, phaseAt, buildCalendar, labelOfMs, mondayOfLabel, mondayOfDate, labelOfIdx, baseOf, TIPI_BASE, LINES, CATS, NW, DAY };
+const Engine = { humanWarn, plan, freeze, thaw, defaultCfg, mergeCfg, tipiOf, phaseAt, buildCalendar, labelOfMs, mondayOfLabel, mondayOfDate, labelOfIdx, baseOf, TIPI_BASE, LINES, CATS, NW, DAY };
 if (typeof module !== "undefined") module.exports = Engine;
 if (typeof window !== "undefined") window.Engine = Engine;
