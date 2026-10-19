@@ -226,3 +226,19 @@ table.g{border-collapse:separate;border-spacing:0}
 
 .indic{background:var(--accent-soft);color:var(--ink);font-size:13px;padding:8px 16px;text-align:center;border-bottom:1px solid var(--line)}
 .indic b{color:var(--accent)}
+
+/* ---- piano reale e offerte sospese ---- */
+.addrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
+.addrow .field{margin-bottom:14px}
+.rt td{white-space:nowrap}
+.rt td.nw{white-space:nowrap}
+.inp.wkc{width:104px;padding:5px 7px;font-variant-numeric:tabular-nums}
+.rt td.man{background:var(--accent-soft)}
+.rt td.man .inp{border-color:var(--accent)}
+.man-i{display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--accent-soft);border:1px solid var(--accent);margin-right:6px;vertical-align:-1px}
+.oc.sosp{border-left:4px solid var(--warn)}
+.rt{font-size:13px}
+.rt th,.rt td{padding:8px 6px}
+.rt th{white-space:normal;line-height:1.15;vertical-align:bottom}
+.inp.wkc{width:92px;font-size:13px}
+.rt td:nth-child(3),.rt td:nth-child(4){white-space:normal;min-width:90px}

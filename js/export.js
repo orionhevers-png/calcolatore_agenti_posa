@@ -40,17 +40,31 @@ window.exportExcel = async function (S) {
   /* ---- Offerte ---- */
   ws = wb.addWorksheet("Offerte", { views: [{ state: "frozen", ySplit: 3, xSplit: 3 }] });
   title(ws, "Tutte le offerte", "STIMA INDICATIVA: le settimane non sono date confermate. Priorità = ordine di inserimento. Formato ISO (anno-Wnumero).");
-  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri PVC", "Scuri alu", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa indicativa", "Ritardo (sett.)", "Avvisi"]);
+  ws.addRow(["Agente", "N° offerta", "Cliente", "Inserita il", "Sett. inserimento", "Fori", "Ante PVC", "Alzanti PVC", "Portoncini", "Ante alu", "Alzanti alu", "Scuri PVC", "Scuri alu", "Posa richiesta", "Rilievo da", "Rilievo a", "Ordine materiali", "Produzione da", "Produzione a", "Posa indicativa", "Ritardo (sett.)", "Avvisi", "Stato"]);
   hdr(ws, 3);
   for (const o of rows) {
     const r = o.r, i = o.input;
     const d = new Date(o.creata_il);
     ws.addRow([o.agente_nome, o.numero, o.cliente, d, E.labelOfMs(E.mondayOfDate(d.getTime())), r.fori, i.antePvc || 0, i.alzPvc || 0, i.port || 0, i.anteAlu || 0, i.alzAlu || 0, i.scuriPvc || 0, i.scuriAlu != null ? i.scuriAlu : (i.scuri || 0),
-      r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", r.warnings.map(E.humanWarn).join(" | ")]);
+      r.req != null ? wl(r.req) : "", wl(r.rilFirst), wl(r.rilLast), wl(r.M), wl(r.pFirst), wl(r.pLast), r.ok ? wl(r.posa) : "", r.late > 0 ? r.late : "", o.commessa ? "" : r.warnings.map(E.humanWarn).join(" | "),
+      o.commessa ? "Confermata · commessa " + o.commessa : (!o.commessa && Math.floor((Date.now() - new Date(o.creata_il).getTime()) / 86400000) >= (S.sosp || 15)) ? "Sospesa" : "In attesa"]);
   }
   ws.getColumn(4).numFmt = "dd/mm/yyyy";
-  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 9, 9, 14, 12, 12, 14, 13, 13, 13, 11, 60][k]));
-  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 22 } };
+  ws.columns.forEach((c, k) => (c.width = [16, 12, 26, 12, 14, 7, 9, 11, 10, 9, 11, 9, 9, 14, 12, 12, 14, 13, 13, 13, 11, 60, 26][k]));
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 23 } };
+
+  /* ---- Piano reale ---- */
+  ws = wb.addWorksheet("Piano_reale", { views: [{ state: "frozen", ySplit: 3, xSplit: 3 }] });
+  title(ws, "Piano reale", "Date definitive calcolate dal rilievo assegnato. Le celle azzurre sono state modificate a mano. Formato ISO (anno-Wnumero).");
+  ws.addRow(["Offerta", "Commessa", "Cliente", "Agente", "Fori", "Posa agente (stima)", "Rilievo", "Conferma ordine", "Acquisti", "Produzione", "Posa reale", "Differenza (sett.)", "Avvisi"]); hdr(ws, 3);
+  const dsett = (a, b) => (a && b ? Math.round((E.mondayOfLabel(a) - E.mondayOfLabel(b)) / (7 * E.DAY)) : "");
+  for (const p of (S.piano || []).slice().sort((a, b) => (a.rilievo < b.rilievo ? -1 : a.rilievo > b.rilievo ? 1 : a.seq - b.seq))) {
+    const pi = p.piano, mn = p.manuali || {};
+    const rr = ws.addRow([p.offerta_num, p.commessa, p.cliente, p.agente_nome, p.input.fori, p.posa_agente || "", p.rilievo, pi.L, pi.M, pi.pFirst != null ? pi.pFirst : pi.N, pi.posa || "", dsett(pi.posa, p.posa_agente), (pi.warnings || []).map(E.humanWarn).join(" | ")]);
+    [["L", 8], ["M", 9], ["N", 10], ["posa", 11]].forEach(([k, c]) => { if (mn[k]) rr.getCell(c).fill = fillOf("DCECF9"); });
+  }
+  ws.columns.forEach((c, k) => (c.width = [12, 12, 26, 16, 7, 16, 11, 14, 11, 12, 12, 14, 60][k]));
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 13 } };
 
   /* ---- Gantt ---- */
   ws = wb.addWorksheet("Gantt", { views: [{ state: "frozen", ySplit: 3, xSplit: 4 }] });
@@ -90,7 +104,7 @@ window.exportExcel = async function (S) {
   kv("Tecnici rilievo", cfg.tecnici, "persone"); kv("Fori per tecnico", cfg.foriTecnico, "fori/sett."); kv("Capacità rilievo", cfg.tecnici * cfg.foriTecnico, "fori/sett.");
   kv("Ante PVC", cfg.capPvc, "pezzi/sett."); kv("Alzanti PVC", cfg.capAlz, "pezzi/sett."); kv("Portoncini", cfg.capPor, "pezzi/sett."); kv("Alluminio", cfg.capAlu, "ore/sett."); kv("Reparto scuri", cfg.capScu, "ore/sett.");
   ws.addRow([]); const p2 = ws.addRow(["Tempi e parametri", "Valore", "Unità"]); hdr(ws, p2.number);
-  kv("Rilievo → conferma ordine", cfg.tRil, "settimane"); kv("Conferma → ordine materiali", cfg.tCo, "settimane"); kv("Cuscinetto prima della posa", cfg.buffer, "settimane");
+  kv("Rilievo → conferma ordine", cfg.tRil, "settimane"); kv("Conferma → ordine materiali", cfg.tCo, "settimane"); kv("Cuscinetto prima della posa", cfg.buffer, "settimane"); kv("Offerta sospesa dopo", cfg.giorniSospesa, "giorni");
   kv("Ore per anta alluminio", cfg.hAnteAlu, "ore/pezzo"); kv("Ore per alzante alluminio", cfg.hAlzAlu, "ore/pezzo"); kv("Ore per scuro PVC", cfg.hScuriPvc, "ore/pezzo"); kv("Ore per scuro alluminio", cfg.hScuriAlu, "ore/pezzo");
   ws.addRow([]); const p3 = ws.addRow(["Coda iniziale", "Settimane", ""]); hdr(ws, p3.number);
   for (const l of E.LINES) kv(l.name, cfg.coda[l.key], "settimane");

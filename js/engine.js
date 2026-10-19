@@ -23,7 +23,7 @@ const LINES = [
 function defaultCfg() {
   return {
     tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200, capScu: 64,
-    tRil: 2, tCo: 2, buffer: 2, hAnteAlu: 1, hAlzAlu: 1, hScuriPvc: 3, hScuriAlu: 4.5,
+    tRil: 2, tCo: 2, buffer: 2, giorniSospesa: 15, hAnteAlu: 1, hAlzAlu: 1, hScuriPvc: 3, hScuriAlu: 4.5,
     coda: { ril: 0, pvc: 0, alz: 0, por: 0, alu: 0, scu: 0 },
     closures: [
       { from: "2026-W52", to: "2026-W52", pct: 0.5 }, { from: "2027-W01", to: "2027-W01", pct: 0 },
@@ -129,9 +129,11 @@ function plan(commesse, cfg, todayMs, opts) {
   for (const c of commesse) {
     const r = { id: c.id, nome: c.nome, warnings: [], ok: false };
     const avvioIdx = c.avvio ? C.idxOf(c.avvio) : null, reqIdx = c.posaRich ? C.idxOf(c.posaRich) : null;
+    const rilIdx = c.rilievo ? C.idxOf(c.rilievo) : null;      // piano reale: settimana di rilievo scelta dal gestore
+    const fx = c.fix || {}, fxi = k => (fx[k] ? C.idxOf(fx[k]) : null); // date forzate a mano dal gestore
     if (c.avvio && avvioIdx == null) r.warnings.push("Settimana di avvio non valida.");
     if (c.posaRich && reqIdx == null) r.warnings.push("Posa richiesta non valida.");
-    const s = avvioIdx != null ? Math.max(1, avvioIdx) : cur;
+    if (c.rilievo && rilIdx == null) r.warnings.push("Settimana di rilievo non valida.");
     const req = reqIdx != null ? Math.max(1, reqIdx) : null;
     let early = 0, main = 0, nSel = 0;
     for (const [name, v] of Object.entries(c.tipi || {})) {
@@ -139,6 +141,7 @@ function plan(commesse, cfg, todayMs, opts) {
       nSel++; const lead = Number(v === "std" ? t.std : t.fsd) || 0;
       if (t.early) early = Math.max(early, lead); else main = Math.max(main, lead);
     }
+    const s = rilIdx != null ? Math.max(1, rilIdx - early) : (avvioIdx != null ? Math.max(1, avvioIdx) : cur);
     const fori = +c.fori || 0;
     const need = {
       pvc: +c.antePvc || 0, alz: +c.alzPvc || 0, por: +c.port || 0,
@@ -147,15 +150,18 @@ function plan(commesse, cfg, todayMs, opts) {
     };
     if (fori === 0) r.warnings.push("Inserire n° fori.");
     if (nSel + need.pvc + need.alz + need.por + need.alu === 0) r.warnings.push("Selezionare tipologie / quantità.");
-    const E = s + early, G = Math.max(E, cur + 1 + cfg.coda.ril); // il rilievo parte dalla settimana successiva all'inserimento
+    const E = s + early;
+    // offerte: il rilievo parte dalla settimana successiva all'inserimento; piano reale: dalla settimana scelta dal gestore
+    const G = rilIdx != null ? Math.max(1, rilIdx) : Math.max(E, cur + 1 + cfg.coda.ril);
     const ril = fori > 0 ? alloc("ril", fori, G) : { first: G, last: G, fit: true, parts: [] };
-    const codaRil = fori > 0 && ril.first != null ? Math.max(0, ril.first - Math.max(E, cur + 1)) : 0;
+    const codaRil = fori > 0 && ril.first != null ? Math.max(0, ril.first - (rilIdx != null ? G : Math.max(E, cur + 1))) : 0;
     if (codaRil > 0) r.warnings.push(`Coda rilievo +${codaRil} sett.`);
     let dur = 1;
     for (const k of ["pvc", "alz", "por", "alu", "scu"]) if (need[k] > 0 && base[k] > 0) dur = Math.max(dur, Math.ceil(need[k] / base[k]));
     const AQ = req != null ? req - cfg.buffer - dur + 1 : 0;
-    const L = (ril.last ?? G) + cfg.tRil;
-    const M = Math.max(L + cfg.tCo, AQ - main), N = M + main;
+    let L = (ril.last ?? G) + cfg.tRil; if (fxi("L") != null) L = Math.max(1, fxi("L"));
+    let M = Math.max(L + cfg.tCo, AQ - main); if (fxi("M") != null) M = Math.max(1, fxi("M"));
+    let N = M + main; if (fxi("N") != null) N = Math.max(1, fxi("N"));
     const firsts = [], lasts = []; let fit = ril.fit;
     const foot = { ril: ril.parts };
     for (const k of ["pvc", "alz", "por", "alu", "scu"]) {
@@ -168,7 +174,12 @@ function plan(commesse, cfg, todayMs, opts) {
     const codaProd = Math.max(0, pFirst - N);
     if (codaProd > 0) r.warnings.push(`Produzione in coda / satura +${codaProd} sett.`);
     const AI = pLast + cfg.buffer;
-    const posa = fit && AI <= NW ? cal[AI].nextOpen : null;
+    let posa = fit && AI <= NW ? cal[AI].nextOpen : null;
+    if (fxi("posa") != null) {
+      const pf = Math.min(NW, Math.max(1, fxi("posa")));
+      if (posa != null && pf < posa) r.warnings.push(`Posa fissata prima del termine +${posa - pf}`);
+      posa = pf;
+    }
     if (!fit || posa == null) r.warnings.push("Oltre l'orizzonte del calendario.");
     const late = req != null && posa != null ? posa - req : null;
     if (late != null && late > 0) r.warnings.push(`Posa oltre la data richiesta +${late} sett.`);
@@ -188,6 +199,7 @@ function humanWarn(w) {
   if ((m = /Coda rilievo \+(\d+)/.exec(w))) return `Il rilievo parte ${plur(+m[1], "settimana", "settimane")} più tardi perché i tecnici sono già impegnati con altre offerte.`;
   if ((m = /Produzione in coda \/ satura \+(\d+)/.exec(w))) return `La produzione parte ${plur(+m[1], "settimana", "settimane")} più tardi perché i reparti sono già pieni.`;
   if ((m = /Posa oltre la data richiesta \+(\d+)/.exec(w))) return `La posa slitta di ${plur(+m[1], "settimana", "settimane")} rispetto alla data richiesta dal cliente.`;
+  if ((m = /Posa fissata prima del termine \+(\d+)/.exec(w))) return `La posa indicata è ${plur(+m[1], "settimana", "settimane")} prima del termine previsto per la produzione.`;
   if (/orizzonte/.test(w)) return "Non c'è abbastanza disponibilità nei prossimi due anni per calcolare la posa.";
   if (/Inserire n° fori/.test(w)) return "Indica il numero di fori.";
   if (/Selezionare tipologie/.test(w)) return "Seleziona almeno una tipologia o una quantità.";
