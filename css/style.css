@@ -280,3 +280,17 @@ details.wait{margin-top:10px}
 details.wait summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
 .rt td.cl{white-space:normal;min-width:150px}
 .alert a{color:var(--accent);font-weight:600}
+
+/* ---- elenco commesse, conferma rossa, modulo inline ---- */
+.btn.dangerfill{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:600}
+.btn.dangerfill:hover{filter:brightness(.92)}
+.modal{position:fixed;z-index:60;top:50%;left:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--bad);border-radius:10px;padding:20px 22px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.modal h3{margin:0 0 10px;font-size:18px}
+.modal .mb{font-size:14px;line-height:1.5}
+.modal .mb ul{margin:8px 0;padding-left:20px}
+.modal .btns{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+.cform{border-top:1px solid var(--line);margin-top:12px;padding-top:6px}
+.cform h3{font-size:15px}
+.filt .addrow{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.filt .field{margin-bottom:6px}
+.rt td.posa{font-size:inherit;font-weight:700}

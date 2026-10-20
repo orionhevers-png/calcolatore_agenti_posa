@@ -44,3 +44,10 @@ Repository → **Settings → Pages** → Source: *Deploy from a branch* → `ma
 
 ## Da verificare
 Ore per pezzo alluminio (segnaposto 1), date di chiusura, code iniziali.
+
+## Aggiornamento: schermate del piano definitivo
+
+- **Commesse**: collegando un'offerta compare subito la composizione, correggibile prima di inserire. Sotto restano solo le commesse collegate negli ultimi 7 giorni.
+- **Tutte le commesse**: elenco completo con rilievo, conferma ordine, acquisti, produzione e posa, con filtri combinabili (agente, stato, intervalli di rilievo e posa, composizione, confronto con la stima agente) e ricerca.
+- **Gantt** definitivo in ordine di posa (cambiabile) con ricerca per commessa o cliente.
+- **Ricalcola tutto** è rosso e chiede conferma.

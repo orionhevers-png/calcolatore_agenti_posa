@@ -6,7 +6,8 @@
   const S = {
     me: null, versions: [], offerte: [], occ: { versione: 0, righe: [] }, profili: [],
     tab: "cruscotto", showDone: false, agentF: "", loginErr: "", busy: false, drawer: null,
-    piano: [], prForm: { off: "", comm: "", ril: "" }, open: {}
+    piano: [], prForm: { off: "", comm: "", ril: "", oid: null, form: null }, open: {}, pin: {},
+    fl: { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }, gq: "", gord: "posa"
   };
   window.S = S;
 
@@ -149,7 +150,7 @@
   /* ---------- struttura comune ---------- */
   const TABS_A = [["cruscotto", "Cruscotto"], ["calendario", "Calendario slot liberi"]];
   // gestore: tre sezioni. DEFINITIVO (protagonista), STIME AGENTI (consultazione), IMPOSTAZIONI.
-  const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"]];
+  const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["elenco", "Tutte le commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"]];
   const TABS_PROV = [["p_riep", "Riepilogo stime"], ["offerte", "Offerte degli agenti"], ["gantt", "Gantt stime"], ["carico", "Carico stime"]];
   const TABS_SET = [["impostazioni", "Impostazioni"], ["utenti", "Utenti"]];
   const SECS = [["def", "Piano definitivo", TABS_DEF], ["prov", "Stime agenti", TABS_PROV], ["set", "Impostazioni", TABS_SET]];
@@ -181,7 +182,7 @@
     if (!S.me) return renderLogin();
     const g = S.me.ruolo === "gestore";
     const views = g
-      ? { panoramica: vDefPanoramica, reale: vReale, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
+      ? { panoramica: vDefPanoramica, reale: vReale, elenco: vElenco, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
       : { cruscotto: vCruscotto, gantt: vGantt, calendario: vCalendario };
     const keepScroll = window.scrollY;
     if (g && !views[S.tab]) S.tab = "panoramica";
@@ -191,10 +192,11 @@
     bind();
   }
 
+  function doGoto(e, b) { e.preventDefault(); S.tab = b.dataset.goto; if (b.dataset.open) { S.open[b.dataset.open] = true; S.pin[b.dataset.open] = true; } lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }
   function bind() {
     $app.querySelectorAll("[data-tab]").forEach(b => (b.onclick = () => { S.tab = b.dataset.tab; if (S.me.ruolo === "gestore") lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }));
     $app.querySelectorAll("[data-sec]").forEach(b => (b.onclick = () => { S.tab = lastTab[b.dataset.sec]; render(); window.scrollTo(0, 0); }));
-    $app.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => { e.preventDefault(); S.tab = b.dataset.goto; if (b.dataset.open) S.open[b.dataset.open] = true; lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }));
+    $app.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => doGoto(e, b)));
     const lo = document.getElementById("logout");
     if (lo) lo.onclick = async () => { await Api.logout(); S.me = null; S.offerte = []; document.documentElement.dataset.sec = ""; clearInterval(start.t); renderLogin(); };
     const dr = document.getElementById("dreset"); if (dr) dr.onclick = e => { e.preventDefault(); if (confirm("Azzerare i dati demo?")) Api.reset(); };
@@ -207,6 +209,8 @@
     const xl = document.getElementById("xls"); if (xl) xl.onclick = () => busy(async () => { try { await window.exportExcel(S); toast("Excel scaricato."); } catch (e) { toast("Errore nell'export: " + e.message, true); } });
     if (S.tab === "impostazioni" && S.me.ruolo === "gestore") bindSettings();
     if (S.tab === "reale" && S.me.ruolo === "gestore") bindReale();
+    if (S.tab === "elenco" && S.me.ruolo === "gestore") bindElenco();
+    if (S.tab === "gantt_r" && S.me.ruolo === "gestore") bindGanttR();
     if (S.tab === "utenti") bindUtenti();
   }
 
@@ -273,22 +277,46 @@
   }
 
   /* ---------- Gantt ---------- */
-  function vGantt(real) {
+  function ganttRows(real) {
     const g = S.me.ruolo === "gestore";
     let rows = real
-      ? S.piano.map(p => ({ numero: p.commessa, cliente: p.cliente || "", agente_nome: p.agente_nome || "", agente_id: null, r: E.thaw(p.piano, S.C) })).filter(r => r.r.ok && r.r.posa >= S.cur)
+      ? S.piano.map(p => ({ numero: p.commessa, off: p.offerta_num || "", cliente: p.cliente || "", agente_nome: p.agente_nome || "", agente_id: null, rilievo: p.rilievo, r: E.thaw(p.piano, S.C) })).filter(r => r.r.ok && r.r.posa >= S.cur)
       : S.rows.filter(r => r.r.ok && isActive(r));
     if (g && !real && S.agentF) rows = rows.filter(r => r.agente_id === S.agentF);
-    const last = Math.min(E.NW, Math.max(S.cur + 26, ...rows.map(r => r.r.posa + 2)));
+    if (real) rows.sort((a, b) => {
+      const ka = S.gord === "rilievo" ? [a.rilievo, a.r.posa] : S.gord === "commessa" ? [String(a.numero).toLowerCase(), 0] : [a.r.posa, a.rilievo];
+      const kb = S.gord === "rilievo" ? [b.rilievo, b.r.posa] : S.gord === "commessa" ? [String(b.numero).toLowerCase(), 0] : [b.r.posa, b.rilievo];
+      return ka[0] < kb[0] ? -1 : ka[0] > kb[0] ? 1 : ka[1] < kb[1] ? -1 : ka[1] > kb[1] ? 1 : 0;
+    });
+    return rows;
+  }
+  function ganttTable(rows, all, real) {
+    const g = S.me.ruolo === "gestore";
+    const last = Math.min(E.NW, Math.max(S.cur + 26, ...all.map(r => r.r.posa + 2)));
     const ws = []; for (let w = Math.max(1, S.cur - 1); w <= last; w++) ws.push(w);
     const head = ws.map(w => `<th class="wh ${w === S.cur ? "cur" : ""}">${S.P.cal[w].label}</th>`).join("");
     const body = rows.map(r => `<tr><td class="sl" title="${esc(r.cliente)}">${esc(r.numero)} · ${esc(r.cliente)}${g ? `<br><span class="muted small">${esc(r.agente_nome)}</span>` : ""}</td>
       <td class="sl2">${wl(r.r.posa)}</td>${ws.map(w => { const p = E.phaseAt(r.r, w, S.cfg); return `<td class="c ${p ? "ph-" + p : ""} ${w === S.cur ? "cur" : ""}">${p}</td>`; }).join("")}</tr>`).join("");
+    return rows.length ? `<div class="gwrap"><table class="g"><thead><tr><th class="sl">${real ? "Commessa" : "Offerta"}</th><th class="sl2">Posa</th>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+      : `<div class="panel empty"><b>${all.length ? "Nessuna commessa trovata" : "Nessuna offerta da mostrare"}</b>${all.length ? "Controlla il testo cercato." : "Le offerte attive compariranno qui."}</div>`;
+  }
+  function ganttFiltered(rows) {
+    const q = S.gq.trim().toLowerCase();
+    return q ? rows.filter(r => `${r.numero} ${r.off || ""} ${r.cliente} ${r.agente_nome}`.toLowerCase().includes(q)) : rows;
+  }
+  function vGantt(real) {
+    const g = S.me.ruolo === "gestore", all = ganttRows(real);
+    const tools = real ? `<input class="inp" id="gq" value="${esc(S.gq)}" placeholder="Cerca commessa o cliente…" autocomplete="off" style="width:220px">
+      <select class="inp" id="gord" style="width:auto" aria-label="Ordine">${[["posa", "Ordine: posa"], ["rilievo", "Ordine: rilievo"], ["commessa", "Ordine: n° commessa"]].map(([v, l]) => `<option value="${v}" ${S.gord === v ? "selected" : ""}>${l}</option>`).join("")}</select>` : "";
     return `<div class="pagehead"><h2>Gantt${real ? " — piano definitivo" : g ? " — stime di tutti gli agenti" : " — le tue offerte"}</h2><div class="sp"></div>
-      ${g && !real ? agentSelect() : ""}</div>
-      ${rows.length ? `<div class="gwrap"><table class="g"><thead><tr><th class="sl">${real ? "Commessa" : "Offerta"}</th><th class="sl2">Posa</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
-      <div class="legend">${info("Ogni riga è un'offerta e ogni colonna una settimana. I colori mostrano cosa succede in ciascuna settimana, dal rilievo fino alla posa (P). La settimana corrente è evidenziata.")}${Object.entries(GL).map(([k, l]) => `<span><i class="ph-${k}"></i>${k} · ${l}</span>`).join("")}</div>`
-        : `<div class="panel empty"><b>Nessuna offerta da mostrare</b>Le offerte attive compariranno qui.</div>`}`;
+      ${g && !real ? agentSelect() : ""}${tools}</div>
+      <div id="g-res">${ganttTable(real ? ganttFiltered(all) : all, all, real)}</div>
+      ${all.length ? `<div class="legend">${info("Ogni riga è " + (real ? "una commessa" : "un'offerta") + " e ogni colonna una settimana. I colori mostrano cosa succede in ciascuna settimana, dal rilievo fino alla posa (P). La settimana corrente è evidenziata." + (real ? " Le commesse sono in ordine di data di posa: puoi cambiare l'ordine o cercarne una." : ""))}${Object.entries(GL).map(([k, l]) => `<span><i class="ph-${k}"></i>${k} · ${l}</span>`).join("")}</div>` : ""}`;
+  }
+  function bindGanttR() {
+    const draw = () => { const all = ganttRows(true); document.getElementById("g-res").innerHTML = ganttTable(ganttFiltered(all), all, true); };
+    document.getElementById("gq").oninput = e => { S.gq = e.target.value; draw(); };
+    document.getElementById("gord").onchange = e => { S.gord = e.target.value; draw(); };
   }
   function agentSelect() {
     const ag = S.profili.filter(p => p.ruolo === "agente");
@@ -405,15 +433,59 @@
     }).join("");
   }
   const nFsd = i => Object.values(i.tipi || {}).filter(v => v === "fsd").length;
+  // ---- modulo composizione condiviso (collegamento e finestra di modifica)
+  function formOf(inp, posaRich) {
+    return { fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuriPvc: inp.scuriPvc || "", scuriAlu: inp.scuriAlu || inp.scuri || "", tipi: Object.assign({}, inp.tipi || {}), posaRich: posaRich || "" };
+  }
+  function compFormHtml(form) {
+    const tipi = E.tipiOf(S.cfg), weeks = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 90); w++) weeks.push(S.P.cal[w].label);
+    if (form.posaRich && !weeks.includes(form.posaRich)) weeks.unshift(form.posaRich);
+    const nf = (k, l) => `<label class="field"><span>${l}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${esc(form[k])}" placeholder="0"></label>`;
+    return `<h3>Fori e serramenti</h3>
+      <div class="fgrid"><label class="field req"><span>Numero fori</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${esc(form.fori)}" placeholder="0"></label></div>
+      <div class="fgrid">${nf("antePvc", "Ante PVC")}${nf("alzPvc", "Alzanti PVC")}${nf("port", "Portoncini")}${nf("anteAlu", "Ante alluminio")}${nf("alzAlu", "Alzanti alluminio")}${nf("scuriPvc", "Scuri PVC")}${nf("scuriAlu", "Scuri alluminio")}</div>
+      <div class="sumbox" data-sum></div>
+      <h3>Tipologie ordinate</h3>
+      ${E.CATS.map((cat, ci) => `<div class="cat"><h4>${cat}</h4>${tipi.filter(t => t.cat === ci).map(t => `<div class="trow"><div class="n">${esc(t.name)}</div>
+        <div class="seg" data-t="${esc(t.name)}"><button type="button" data-v="" aria-pressed="false">—</button><button type="button" data-v="std" aria-pressed="false">Standard</button><button type="button" class="fsd" data-v="fsd" aria-pressed="false">Fuori std</button></div></div>`).join("")}</div>`).join("")}
+      <h3>Posa desiderata dal cliente (facoltativa) ${info("Se c'è una data precisa, gli acquisti e la produzione si programmano a ritroso per rispettarla. Altrimenti la posa è la prima possibile.")}</h3>
+      <label class="field"><span>Settimana</span><select class="inp" data-req><option value="">Prima possibile</option>${weeks.map(w => `<option value="${w}" ${w === form.posaRich ? "selected" : ""}>${w}</option>`).join("")}</select></label>`;
+  }
+  function bindCompForm(root, form, onChange) {
+    const syncSeg = () => root.querySelectorAll(".seg").forEach(sg => { const v = form.tipi[sg.dataset.t] || ""; sg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v))); });
+    root.querySelectorAll(".seg button").forEach(b => (b.onclick = () => { const t = b.parentElement.dataset.t; if (b.dataset.v) form.tipi[t] = b.dataset.v; else delete form.tipi[t]; syncSeg(); onChange(); }));
+    root.querySelectorAll("[data-n]").forEach(i => (i.oninput = () => { form[i.dataset.n] = i.value; onChange(); }));
+    root.querySelector("[data-req]").onchange = e => { form.posaRich = e.target.value; onChange(); };
+    syncSeg();
+  }
+  function inputFromForm(base, form) {
+    const n = k => Math.max(0, Math.floor(Number(form[k]) || 0));
+    return { ...base, fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuriPvc: n("scuriPvc"), scuriAlu: n("scuriAlu"), tipi: { ...form.tipi } };
+  }
+  function checkForm(i) {
+    const tot = sumSerr(i), errs = [];
+    if (!(i.fori > 0)) errs.push("Indicare il numero di fori");
+    else if (tot !== i.fori) errs.push(`I serramenti indicati (${tot}) devono essere esattamente ${i.fori}, come i fori`);
+    if (!Object.keys(i.tipi).length) errs.push("Selezionare almeno una tipologia");
+    return { i, tot, errs };
+  }
+  function sumFill(root, v) {
+    const diff = v.tot - v.i.fori, el = root.querySelector("[data-sum]");
+    el.className = "sumbox " + (v.i.fori > 0 && diff === 0 ? "ok" : v.i.fori > 0 && v.tot > 0 ? "bad" : "");
+    el.innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${v.i.fori}</b> ${v.i.fori > 0 && diff === 0 ? "✓ coincidono" : v.i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}`;
+  }
   function lookupHtml() {
-    const v = S.prForm.off.trim(); if (!v) return `<p class="sub" style="margin:8px 0 0">Scrivi il numero dell'offerta: cliente, agente, composizione e tipologie si ricompongono da soli.</p>`;
+    const v = S.prForm.off.trim();
+    if (!v) { S.prForm.oid = null; return `<p class="sub" style="margin:8px 0 0">Scrivi il numero dell'offerta: cliente, agente, composizione e tipologie si ricompongono da soli e le puoi correggere subito.</p>`; }
     const { list } = offertaPerNumero(v);
-    if (!list.length) return `<div class="errbox" style="margin:10px 0 0">Nessuna offerta con il numero «${esc(v)}».</div>`;
-    if (list.length > 1) return `<div class="errbox" style="margin:10px 0 0">Ci sono ${list.length} offerte con questo numero (agenti diversi). Chiedi di correggere il numero.</div>`;
+    if (!list.length) { S.prForm.oid = null; return `<div class="errbox" style="margin:10px 0 0">Nessuna offerta con il numero «${esc(v)}».</div>`; }
+    if (list.length > 1) { S.prForm.oid = null; return `<div class="errbox" style="margin:10px 0 0">Ci sono ${list.length} offerte con questo numero (agenti diversi). Chiedi di correggere il numero.</div>`; }
     const o = list[0], dup = S.piano.find(x => x.offerta_id === o.id);
-    return `<div class="sumbox ${dup ? "bad" : "ok"}" style="display:block;margin:10px 0 0"><b>${esc(o.cliente)}</b> · agente ${esc(o.agente_nome)} · inserita il ${esc(fmtDay(o.creata_il))}<br>
-      <span class="small">Posa indicata dall'agente: <b>${o.piano.posa || "—"}</b>${o.input.posaRich ? ` · richiesta dal cliente: <b>${esc(o.input.posaRich)}</b>` : ""}${dup ? ` · <b>già presente nel piano (commessa ${esc(dup.commessa)})</b>` : ""}</span>
-      <div class="chips" style="margin-top:8px">${chipsComp(o.input)}</div><div class="tipi" style="margin-top:6px">${chipsTipi(o.input)}</div></div>`;
+    const head = `<div class="sumbox ${dup ? "bad" : "ok"}" style="display:block;margin:10px 0 0"><b>${esc(o.cliente)}</b> · agente ${esc(o.agente_nome)} · inserita il ${esc(fmtDay(o.creata_il))}<br>
+      <span class="small">Posa indicata dall'agente: <b>${o.piano.posa || "—"}</b>${o.input.posaRich ? ` · richiesta dal cliente: <b>${esc(o.input.posaRich)}</b>` : ""}${dup ? ` · <b>già presente nel piano (commessa ${esc(dup.commessa)})</b>` : ""}</span></div>`;
+    if (dup) return head;
+    if (S.prForm.oid !== o.id) { S.prForm.oid = o.id; S.prForm.form = formOf(o.input, o.input.posaRich); }
+    return head + `<div class="cform" id="pr-cform"><p class="sub" style="margin:10px 0 0">Composizione ricostruita dall'offerta: correggila qui se serve (vale solo per il piano definitivo).</p>${compFormHtml(S.prForm.form)}<div id="pr-res"></div></div>`;
   }
 
   // ---- panoramica definitiva
@@ -422,10 +494,6 @@
     const act = rows.filter(p => !p.piano.posa || p.piano.posa >= curL), verif = act.filter(p => !p.approvata);
     const late = act.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length;
     const attesa = S.rows.filter(r => !r.commessa && !isSospesa(r) && isActive(r)).length, sosp = S.rows.filter(isSospesa).length;
-    const pose = []; for (let w = S.cur; w < Math.min(E.NW, S.cur + 12); w++) {
-      const l = S.P.cal[w].label, m = act.filter(p => p.piano.posa === l);
-      if (m.length) pose.push({ l, w, m });
-    }
     return `<div class="pagehead"><h2>Situazione del piano definitivo</h2></div>
       <div class="stats">
         <div class="stat"><div class="l">Commesse in programma</div><div class="v num">${act.length}</div></div>
@@ -435,9 +503,6 @@
         <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane del piano definitivo in cui il lavoro assegnato supera la capacità, ad esempio dopo una riduzione di capacità.")}</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
       </div>
       <div class="cols"><div>
-        <div class="panel"><h3>Pose nelle prossime settimane</h3>
-          ${pose.length ? `<table class="t"><thead><tr><th>Settimana</th><th>Commesse</th><th>Fori</th></tr></thead><tbody>${pose.map(x => `<tr><td class="num"><b>${x.l}</b></td><td>${x.m.map(p => `${esc(p.commessa)} · ${esc(p.cliente || "")}`).join("<br>")}</td><td class="num">${x.m.reduce((t, p) => t + (+p.input.fori || 0), 0)}</td></tr>`).join("")}</tbody></table>`
-            : `<div class="empty" style="padding:18px"><b>Nessuna posa nelle prossime 12 settimane</b></div>`}</div>
         <div class="panel"><h3>Saturazione dei reparti</h3><div class="lines">${meters(PR)}</div></div>
       </div><aside>
         <div class="panel"><h3>Da verificare</h3>
@@ -449,12 +514,103 @@
       </aside></div>`;
   }
 
+  // ---- tutte le commesse confermate, con filtri combinabili
+  const prDay = p => Date.now() - new Date(p.creata_il).getTime();
+  function elencoRows() {
+    const f = S.fl, q = f.q.trim().toLowerCase();
+    let rows = S.piano.filter(p => {
+      if (q && !`${p.commessa} ${p.offerta_num || ""} ${p.cliente || ""} ${p.agente_nome || ""}`.toLowerCase().includes(q)) return false;
+      if (f.ag && p.agente_nome !== f.ag) return false;
+      if (f.stato === "ok" && !p.approvata) return false;
+      if (f.stato === "bozza" && p.approvata) return false;
+      if (f.rilDa && p.rilievo < f.rilDa) return false;
+      if (f.rilA && p.rilievo > f.rilA) return false;
+      const po = p.piano.posa || "";
+      if (f.posaDa && (!po || po < f.posaDa)) return false;
+      if (f.posaA && (!po || po > f.posaA)) return false;
+      if (f.comp === "std" && nFsd(p.input) > 0) return false;
+      if (f.comp === "fsd" && nFsd(p.input) === 0) return false;
+      const d = diffSett(p.piano.posa, p.posa_agente);
+      if (f.conf === "ritardo" && !(d > 0)) return false;
+      if (f.conf === "ok" && !(d != null && d <= 0)) return false;
+      return true;
+    });
+    const key = { rilievo: p => p.rilievo + "|" + String(p.seq).padStart(6, "0"), posa: p => (p.piano.posa || "9999") + "|" + p.rilievo, commessa: p => String(p.commessa).toLowerCase() }[f.ord];
+    return rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  }
+  function elencoRes() {
+    const rows = elencoRows(), tot = S.piano.length;
+    if (!rows.length) return `<div class="panel empty"><b>${tot ? "Nessuna commessa con questi filtri" : "Nessuna commessa nel piano definitivo"}</b>${tot ? "Cambia o azzera i filtri." : ""}</div>`;
+    return `<p class="sub" style="margin:0 0 8px"><b>${rows.length}</b> di ${tot} commesse · ${rows.reduce((t, p) => t + (+p.input.fori || 0), 0)} fori</p>
+      <div class="panel scroll" style="padding:0"><table class="t rt"><thead><tr><th>Commessa</th><th>Cliente</th><th>Agente</th><th>Fori</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa definitiva</th><th>Posa agente</th><th>Differenza</th><th>Stato</th><th></th></tr></thead><tbody>
+      ${rows.map(p => {
+        const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), fsd = nFsd(p.input);
+        const dif = d == null ? "—" : d === 0 ? `<span class="badge ok">uguale</span>` : d > 0 ? `<span class="badge bad">+${d} sett.</span>` : `<span class="badge ok">${d} sett.</span>`;
+        const man = k => ((p.manuali || {})[k] ? ' class="man"' : "");
+        const prod = pi.pFirst != null ? (pi.pLast && pi.pLast !== pi.pFirst ? `${pi.pFirst} → ${pi.pLast}` : pi.pFirst) : pi.N;
+        return `<tr class="${p.approvata ? "" : "bozza"}"><td><b>${esc(p.commessa)}</b><br><span class="muted small">offerta ${esc(p.offerta_num || "")}</span></td>
+          <td>${esc(p.cliente || "")}<br><span class="muted small">${fsd ? fsd + " fuori std" : "tutto standard"}</span></td><td>${esc(p.agente_nome || "")}</td><td class="num">${p.input.fori}</td>
+          <td class="num">${esc(p.rilievo)}</td><td class="num"${man("L")}>${pi.L || "—"}</td><td class="num"${man("M")}>${pi.M || "—"}</td><td class="num"${man("N")}>${esc(prod || "—")}</td>
+          <td class="num posa"${man("posa")}>${pi.posa || "—"}</td><td class="num">${p.posa_agente || "—"}</td><td>${dif}</td>
+          <td>${p.approvata ? `<span class="badge ok">OK</span>` : `<span class="badge warn">Da verificare</span>`}</td>
+          <td><button class="btn sm" data-goto="reale" data-open="${p.id}">Apri</button></td></tr>`;
+      }).join("")}</tbody></table></div>`;
+  }
+  function vElenco() {
+    const f = S.fl, all = S.piano;
+    const uniq = fn => [...new Set(all.map(fn).filter(Boolean))].sort();
+    const opt = (list, cur, blank) => `<option value="">${blank}</option>` + list.map(x => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("");
+    const ril = uniq(p => p.rilievo), pos = uniq(p => p.piano.posa), ags = uniq(p => p.agente_nome);
+    const sel = (k, o) => `<select class="inp" data-fl="${k}">${o}</select>`;
+    const so = (cur, arr) => arr.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
+    return `<div class="pagehead"><h2>Tutte le commesse confermate</h2></div>
+      <p class="sub">${info("Tutte le commesse del piano definitivo con le loro date. I filtri si possono combinare: ad esempio un agente, con posa tra due settimane e solo quelle con fuori standard. Per modificare una commessa premi «Apri».")} Rilievo, conferma ordine, acquisti, produzione e posa di ogni commessa. Combina i filtri per restringere l'elenco.</p>
+      <div class="panel filt"><div class="addrow">
+        <label class="field"><span>Cerca</span><input class="inp" data-fl="q" value="${esc(f.q)}" placeholder="commessa, offerta, cliente…" autocomplete="off"></label>
+        <label class="field"><span>Agente</span>${sel("ag", opt(ags, f.ag, "Tutti"))}</label>
+        <label class="field"><span>Stato</span>${sel("stato", so(f.stato, [["", "Tutti"], ["ok", "Con OK"], ["bozza", "Da verificare"]]))}</label>
+        <label class="field"><span>Rilievo da</span>${sel("rilDa", opt(ril, f.rilDa, "—"))}</label>
+        <label class="field"><span>Rilievo a</span>${sel("rilA", opt(ril, f.rilA, "—"))}</label>
+        <label class="field"><span>Posa da</span>${sel("posaDa", opt(pos, f.posaDa, "—"))}</label>
+        <label class="field"><span>Posa a</span>${sel("posaA", opt(pos, f.posaA, "—"))}</label>
+        <label class="field"><span>Composizione</span>${sel("comp", so(f.comp, [["", "Tutte"], ["std", "Solo standard"], ["fsd", "Con fuori standard"]]))}</label>
+        <label class="field"><span>Rispetto alla stima agente</span>${sel("conf", so(f.conf, [["", "Tutte"], ["ritardo", "Posa dopo la stima"], ["ok", "Entro la stima"]]))}</label>
+        <label class="field"><span>Ordina per</span>${sel("ord", so(f.ord, [["rilievo", "Settimana di rilievo"], ["posa", "Posa definitiva"], ["commessa", "N° commessa"]]))}</label>
+        <button class="btn" id="fl-reset" style="align-self:end;margin-bottom:14px">Azzera filtri</button>
+      </div></div>
+      <div id="el-res">${elencoRes()}</div>
+      <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span><i class="bz-i"></i>Da verificare</span></div>`;
+  }
+  function bindElenco() {
+    const res = document.getElementById("el-res");
+    const draw = () => { res.innerHTML = elencoRes(); res.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => doGoto(e, b))); };
+    document.querySelectorAll("[data-fl]").forEach(i => { const ev = i.tagName === "INPUT" ? "oninput" : "onchange"; i[ev] = () => { S.fl[i.dataset.fl] = i.value; draw(); }; });
+    document.getElementById("fl-reset").onclick = () => { S.fl = { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }; render(); };
+    draw();
+  }
+
+  // ---- conferma con pulsante rosso
+  function askConfirm({ title, body, ok }) {
+    return new Promise(res => {
+      const host = document.createElement("div");
+      host.innerHTML = `<div class="scrim" data-x></div><div class="modal" role="alertdialog" aria-modal="true" aria-label="${esc(title)}"><h3>${esc(title)}</h3><div class="mb">${body}</div>
+        <div class="btns"><button class="btn" data-x type="button" id="cf-no">Annulla</button><button class="btn dangerfill" type="button" id="cf-ok">${esc(ok)}</button></div></div>`;
+      document.body.appendChild(host);
+      const done = v => { document.removeEventListener("keydown", key); host.remove(); res(v); };
+      const key = e => { if (e.key === "Escape") done(false); };
+      document.addEventListener("keydown", key);
+      host.querySelectorAll("[data-x]").forEach(b => (b.onclick = () => done(false)));
+      host.querySelector("#cf-ok").onclick = () => done(true);
+      host.querySelector("#cf-no").focus();
+    });
+  }
+
   // ---- elenco commesse
   function vReale() {
-    const rows = sortReale(S.piano), PR = S.PR, sov = sovraccarichi(PR);
+    const rows = sortReale(S.piano).filter(p => prDay(p) <= 7 * E.DAY || S.pin[p.id]), PR = S.PR, sov = sovraccarichi(PR);
     const wk = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 60); w++) wk.push(S.P.cal[w].label);
     const defRil = S.prForm.ril && wk.includes(S.prForm.ril) ? S.prForm.ril : S.P.cal[Math.min(E.NW, S.cur + 1)].label;
-    const late = rows.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length, verif = rows.filter(p => !p.approvata).length;
+    const late = S.piano.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length, verif = S.piano.filter(p => !p.approvata).length;
     const waiting = S.offerte.filter(o => !o.commessa && !S.piano.some(x => x.offerta_id === o.id)).sort((a, b) => a.seq - b.seq);
     const cell = (p, key, val) => {
       const man = key !== "rilievo" && (p.manuali || {})[key];
@@ -478,15 +634,15 @@
         </div></td></tr>` : "";
       return main + det;
     }).join("");
-    return `<div class="pagehead"><h2>Commesse del piano definitivo</h2><div class="sp"></div><button class="btn" id="pr-all">Ricalcola tutto</button></div>
+    return `<div class="pagehead"><h2>Commesse del piano definitivo</h2><div class="sp"></div><button class="btn dangerfill" id="pr-all">Ricalcola tutto</button></div>
       <p class="sub">${info("Parte dalle offerte degli agenti: scegli la settimana di rilievo e le altre date si calcolano con gli stessi parametri delle impostazioni. Controlla le date, poi dai l'OK. Ogni data si può modificare a mano: le successive si ricalcolano. Il piano definitivo ha il suo carico e non cambia le stime degli agenti.")} Collega l'offerta, controlla la composizione, poi dai l'OK. Le date si possono modificare a mano.</p>
       <div class="stats">
-        <div class="stat"><div class="l">Commesse nel piano</div><div class="v num">${rows.length}</div></div>
+        <div class="stat"><div class="l">Commesse nel piano</div><div class="v num">${S.piano.length}</div></div>
         <div class="stat ${verif ? "warn" : "good"}"><div class="l">Da verificare</div><div class="v num">${verif}</div></div>
         <div class="stat ${late ? "warn" : "good"}"><div class="l">Posa dopo la stima agente</div><div class="v num">${late}</div></div>
         <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
       </div>
-      <div class="panel" id="pr-add-panel"><h3>Collega un'offerta ${info("Scrivi il numero dell'offerta, il numero di commessa e la settimana in cui assegni il rilievo. La composizione e le tipologie dell'offerta si ricompongono qui e il sistema calcola le date. L'offerta dell'agente risulterà «Confermata».")}</h3>
+      <div class="panel" id="pr-add-panel"><h3>Collega un'offerta ${info("Scrivi il numero dell'offerta, il numero di commessa e la settimana in cui assegni il rilievo. La composizione e le tipologie dell'offerta si ricompongono qui, le puoi correggere subito, e il sistema calcola le date. L'offerta dell'agente risulterà «Confermata».")}</h3>
         <div class="addrow">
           <label class="field"><span>N° offerta</span><input class="inp" id="pr-off" value="${esc(S.prForm.off)}" autocomplete="off" placeholder="es. 2026-118"></label>
           <label class="field"><span>N° commessa</span><input class="inp" id="pr-comm" value="${esc(S.prForm.comm)}" autocomplete="off"></label>
@@ -495,7 +651,8 @@
         </div><div id="pr-look">${lookupHtml()}</div>
         ${waiting.length ? `<details class="wait"><summary>Offerte ancora senza commessa (${waiting.length})</summary><div class="scroll"><table class="t"><tbody>${waiting.map(o => `<tr><td><b>${esc(o.numero)}</b></td><td>${esc(o.cliente)}</td><td class="muted small">${esc(o.agente_nome)}</td><td class="num small">${o.piano.posa || "—"}</td><td>${isSospesa(o) ? '<span class="badge warn">sospesa</span>' : ""}</td><td><button class="btn sm" data-link="${esc(o.numero)}">Collega</button></td></tr>`).join("")}</tbody></table></div></details>` : ""}</div>
       <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t rt"><thead><tr><th>Stato</th><th>Commessa</th><th>Cliente</th><th>Posa agente</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa definitiva</th><th>Differenza</th><th></th></tr></thead><tbody>${body}</tbody></table>`
-        : `<div class="empty"><b>Nessuna commessa nel piano definitivo</b>Collega la prima offerta qui sopra.</div>`}</div>
+        : `<div class="empty"><b>${S.piano.length ? "Nessuna commessa collegata negli ultimi 7 giorni" : "Nessuna commessa nel piano definitivo"}</b>${S.piano.length ? "Tutte le altre sono in «Tutte le commesse»." : "Collega la prima offerta qui sopra."}</div>`}</div>
+      <p class="sub" style="margin:8px 0 0">Qui sono mostrate le commesse collegate negli ultimi 7 giorni (${rows.length} su ${S.piano.length}). Le altre le trovi in <a href="#" data-goto="elenco">Tutte le commesse</a>, con filtri e ricerca.</p>
       <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span><i class="bz-i"></i>Da verificare</span><span>▸ apre composizione, tipologie e note. Cambiando una data, quelle successive si ricalcolano; svuota il campo per tornare all'automatico. Cambiando il rilievo si riparte da capo.</span></div>
       ${sov.length ? `<div class="panel"><h3>Sovraccarichi del piano definitivo</h3>${sov.slice(0, 12).map(x => `<div class="alert bad"><i></i><div><b>${PR.cal[x.w].label} · ${x.l.name}</b><span>+${num(x.ex)} ${x.l.unit} oltre la capacità</span></div></div>`).join("")}</div>` : ""}`;
   }
@@ -505,11 +662,24 @@
   }
   function bindReale() {
     const q = id => document.getElementById(id);
-    const sync = () => { S.prForm = { off: q("pr-off").value, comm: q("pr-comm").value, ril: q("pr-ril").value }; q("pr-look").innerHTML = lookupHtml(); };
-    ["pr-off", "pr-comm"].forEach(id => (q(id).oninput = sync)); q("pr-ril").onchange = sync;
+    const offSel = () => { const { list } = offertaPerNumero(S.prForm.off); return list.length === 1 && !S.piano.some(x => x.offerta_id === list[0].id) ? list[0] : null; };
+    const upd = () => {
+      const root = q("pr-cform"), o = offSel(); if (!root || !o) return;
+      const form = S.prForm.form, v = checkForm(inputFromForm(o.input, form)); sumFill(root, v);
+      const res = q("pr-res");
+      if (v.errs.length) { res.innerHTML = `<div class="checks">${v.errs.map(t => `<div><span class="x">✗</span>${esc(t)}</div>`).join("")}</div>`; return; }
+      const np = { input: v.i, rilievo: q("pr-ril").value, posa_rich: form.posaRich, manuali: {} }, pi = calcReale(np, S.realOcc);
+      res.innerHTML = `<div class="res"><div><small class="muted">Posa definitiva calcolata</small><div class="posa">${pi.ok ? pi.posa : "non calcolabile"}</div></div><div class="small" style="flex:1">Posa indicata dall'agente: ${o.piano.posa || "—"}. Le altre date compaiono dopo l'inserimento e si possono modificare.</div></div>`;
+    };
+    const look = () => { q("pr-look").innerHTML = lookupHtml(); const root = q("pr-cform"); if (root) { bindCompForm(root, S.prForm.form, upd); upd(); } };
+    q("pr-off").oninput = () => { S.prForm.off = q("pr-off").value; look(); };
+    q("pr-comm").oninput = () => { S.prForm.comm = q("pr-comm").value; };
+    q("pr-ril").onchange = () => { S.prForm.ril = q("pr-ril").value; upd(); };
+    S.prForm.ril = q("pr-ril").value;
+    { const root = q("pr-cform"); if (root) { bindCompForm(root, S.prForm.form, upd); upd(); } }
     document.querySelectorAll("[data-link]").forEach(b => (b.onclick = () => { S.prForm.off = b.dataset.link; render(); const el = document.getElementById("pr-comm"); if (el) { el.focus(); el.scrollIntoView({ block: "center" }); } }));
     q("pr-add").onclick = async () => {
-      sync();
+      S.prForm.off = q("pr-off").value; S.prForm.comm = q("pr-comm").value; S.prForm.ril = q("pr-ril").value;
       const { list } = offertaPerNumero(S.prForm.off), comm = S.prForm.comm.trim(), ril = S.prForm.ril;
       if (list.length !== 1) return toast(list.length ? "Più offerte con questo numero." : "Offerta non trovata: controlla il numero.", true);
       const o = list[0];
@@ -517,17 +687,22 @@
       if (!comm) return toast("Inserisci il numero di commessa.", true);
       if (S.piano.some(x => String(x.commessa).trim().toLowerCase() === comm.toLowerCase())) return toast("Numero di commessa già presente nel piano.", true);
       if (!wkOk(ril)) return toast("Scegli la settimana di rilievo.", true);
-      const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: JSON.parse(JSON.stringify(o.input)), rilievo: ril, posa_rich: o.input.posaRich || "", manuali: {}, note: "", approvata: false };
+      const form = S.prForm.form, v = checkForm(inputFromForm(o.input, form));
+      if (v.errs.length) return toast(v.errs[0], true);
+      const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: v.i, rilievo: ril, posa_rich: form.posaRich || "", manuali: {}, note: "", approvata: false };
       np.piano = calcReale(np, S.realOcc);
       await busy(async () => {
-        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); S.prForm = { off: "", comm: "", ril: "" }; await refresh(true); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
+        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
         catch (e) { toast(e.message, true); }
       });
       render();
     };
     q("pr-all").onclick = async () => {
       if (!S.piano.length) return;
-      if (!confirm("Ricalcolare tutte le commesse in ordine di settimana di rilievo e poi di inserimento? Le date modificate a mano restano.")) return;
+      const okc = await askConfirm({ title: "Ricalcolare tutto il piano?", ok: "Sì, ricalcola tutto",
+        body: `<p>Stai per ricalcolare <b>tutte le ${S.piano.length} commesse</b> del piano definitivo, in ordine di settimana di rilievo e poi di inserimento.</p>
+          <ul><li>Le date <b>calcolate dal sistema</b> possono cambiare, anche per commesse già con l'OK.</li><li>Le date <b>modificate a mano</b> restano come sono.</li></ul><p>L'operazione non si può annullare.</p>` });
+      if (!okc) return;
       await busy(async () => {
         try {
           const done = [];
@@ -567,55 +742,29 @@
   }
   // composizione della commessa (copia modificabile: l'offerta dell'agente non cambia)
   function openReale(p) {
-    const inp = p.input;
-    const form = { fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuriPvc: inp.scuriPvc || "", scuriAlu: inp.scuriAlu || inp.scuri || "", tipi: Object.assign({}, inp.tipi || {}), posaRich: p.posa_rich || "" };
+    const form = formOf(p.input, p.posa_rich);
     S.drawer = { real: true };
-    const tipi = E.tipiOf(S.cfg), weeks = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 90); w++) weeks.push(S.P.cal[w].label);
-    if (form.posaRich && !weeks.includes(form.posaRich)) weeks.unshift(form.posaRich);
-    const nf = (k, l) => `<label class="field"><span>${l}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${form[k]}" placeholder="0"></label>`;
     const host = document.createElement("div"); host.id = "drawerhost";
     host.innerHTML = `<div class="scrim" data-x></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Composizione commessa">
       <header><div class="top2"><h2>Commessa ${esc(p.commessa)}</h2><button class="btn sm" data-x type="button">Chiudi</button></div>
         <div class="stamp">Offerta ${esc(p.offerta_num || "")} · ${esc(p.cliente || "")}<br>Le modifiche valgono solo per il piano definitivo: l'offerta dell'agente resta com'è.</div></header>
-      <div class="body"><h3>Fori e serramenti</h3>
-        <div class="fgrid"><label class="field req"><span>Numero fori</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${form.fori}" placeholder="0"></label></div>
-        <div class="fgrid">${nf("antePvc", "Ante PVC")}${nf("alzPvc", "Alzanti PVC")}${nf("port", "Portoncini")}${nf("anteAlu", "Ante alluminio")}${nf("alzAlu", "Alzanti alluminio")}${nf("scuriPvc", "Scuri PVC")}${nf("scuriAlu", "Scuri alluminio")}</div>
-        <div class="sumbox" id="sum"></div>
-        <h3>Tipologie ordinate</h3>
-        ${E.CATS.map((cat, ci) => `<div class="cat"><h4>${cat}</h4>${tipi.filter(t => t.cat === ci).map(t => `<div class="trow"><div class="n">${esc(t.name)}</div>
-          <div class="seg" data-t="${esc(t.name)}"><button type="button" data-v="" aria-pressed="false">—</button><button type="button" data-v="std" aria-pressed="false">Standard</button><button type="button" class="fsd" data-v="fsd" aria-pressed="false">Fuori std</button></div></div>`).join("")}</div>`).join("")}
-        <h3>Posa desiderata dal cliente (facoltativa) ${info("Se c'è una data precisa, gli acquisti e la produzione si programmano a ritroso per rispettarla. Altrimenti la posa è la prima possibile.")}</h3>
-        <label class="field"><span>Settimana</span><select class="inp" id="r-req"><option value="">Prima possibile</option>${weeks.map(w => `<option value="${w}" ${w === form.posaRich ? "selected" : ""}>${w}</option>`).join("")}</select></label>
-      </div>
+      <div class="body">${compFormHtml(form)}</div>
       <footer><div id="checks" class="checks"></div><div id="res"></div><div class="btns"><button class="btn" data-x type="button">Annulla</button><button class="btn pri" id="r-save" type="button">Salva e ricalcola</button></div></footer></aside>`;
     document.body.appendChild(host); document.body.style.overflow = "hidden";
     const q = s => host.querySelector(s), close = () => { host.remove(); document.body.style.overflow = ""; S.drawer = null; };
     host.querySelectorAll("[data-x]").forEach(b => (b.onclick = close));
-    const syncSeg = () => host.querySelectorAll(".seg").forEach(sg => { const v = form.tipi[sg.dataset.t] || ""; sg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v))); });
-    host.querySelectorAll(".seg button").forEach(b => (b.onclick = () => { const t = b.parentElement.dataset.t; if (b.dataset.v) form.tipi[t] = b.dataset.v; else delete form.tipi[t]; syncSeg(); update(); }));
-    host.querySelectorAll("[data-n]").forEach(i => (i.oninput = () => { form[i.dataset.n] = i.value; update(); }));
-    q("#r-req").onchange = e => { form.posaRich = e.target.value; update(); };
-    const inputOf = () => { const n = k => Math.max(0, Math.floor(Number(form[k]) || 0)); return { ...p.input, fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuriPvc: n("scuriPvc"), scuriAlu: n("scuriAlu"), tipi: { ...form.tipi } }; };
-    function check() {
-      const i = inputOf(), tot = sumSerr(i), errs = [];
-      if (!(i.fori > 0)) errs.push("Indicare il numero di fori");
-      else if (tot !== i.fori) errs.push(`I serramenti indicati (${tot}) devono essere esattamente ${i.fori}, come i fori`);
-      if (!Object.keys(i.tipi).length) errs.push("Selezionare almeno una tipologia");
-      return { i, tot, errs };
-    }
     function update() {
-      const v = check(), diff = v.tot - v.i.fori;
-      q("#sum").className = "sumbox " + (v.i.fori > 0 && diff === 0 ? "ok" : v.i.fori > 0 && v.tot > 0 ? "bad" : "");
-      q("#sum").innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${v.i.fori}</b> ${v.i.fori > 0 && diff === 0 ? "✓ coincidono" : v.i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}`;
+      const v = checkForm(inputFromForm(p.input, form));
+      sumFill(host, v);
       q("#checks").innerHTML = v.errs.map(t => `<div><span class="x">✗</span>${esc(t)}</div>`).join("");
       q("#r-save").disabled = v.errs.length > 0;
       if (v.errs.length) { q("#res").innerHTML = ""; return; }
       const np = { ...p, input: v.i, posa_rich: form.posaRich }, pi = calcReale(np, occMinus(S.realOcc, p.piano.foot));
       q("#res").innerHTML = `<div class="res"><div><small class="muted">Posa definitiva calcolata</small><div class="posa">${pi.ok ? pi.posa : "non calcolabile"}</div></div><div class="small" style="flex:1">Posa indicata dall'agente: ${p.posa_agente || "—"}.${Object.keys(p.manuali || {}).length ? " Le date modificate a mano restano." : ""}</div></div>`;
     }
-    syncSeg(); update();
+    bindCompForm(host.querySelector(".body"), form, update); update();
     q("#r-save").onclick = async () => {
-      const v = check(); if (v.errs.length) return toast(v.errs[0], true);
+      const v = checkForm(inputFromForm(p.input, form)); if (v.errs.length) return toast(v.errs[0], true);
       const np = JSON.parse(JSON.stringify(p)); np.input = v.i; np.posa_rich = form.posaRich;
       np.piano = calcReale(np, occMinus(S.realOcc, p.piano.foot));
       await busy(async () => { try { await Api.pianoSalva(np); close(); await refresh(true); render(); toast("Commessa ricalcolata."); } catch (e) { toast(e.message, true); } });
