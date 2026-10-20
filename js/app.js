@@ -6,7 +6,7 @@
   const S = {
     me: null, versions: [], offerte: [], occ: { versione: 0, righe: [] }, profili: [],
     tab: "cruscotto", showDone: false, agentF: "", loginErr: "", busy: false, drawer: null,
-    piano: [], prForm: { off: "", comm: "", ril: "" }
+    piano: [], prForm: { off: "", comm: "", ril: "" }, open: {}
   };
   window.S = S;
 
@@ -148,10 +148,16 @@
 
   /* ---------- struttura comune ---------- */
   const TABS_A = [["cruscotto", "Cruscotto"], ["calendario", "Calendario slot liberi"]];
-  const TABS_G = [["panoramica", "Panoramica"], ["offerte", "Tutte le offerte"], ["reale", "Piano reale"], ["gantt", "Gantt"], ["carico", "Carico"], ["impostazioni", "Impostazioni"], ["utenti", "Utenti"]];
+  // gestore: tre sezioni. DEFINITIVO (protagonista), STIME AGENTI (consultazione), IMPOSTAZIONI.
+  const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"]];
+  const TABS_PROV = [["p_riep", "Riepilogo stime"], ["offerte", "Offerte degli agenti"], ["gantt", "Gantt stime"], ["carico", "Carico stime"]];
+  const TABS_SET = [["impostazioni", "Impostazioni"], ["utenti", "Utenti"]];
+  const SECS = [["def", "Piano definitivo", TABS_DEF], ["prov", "Stime agenti", TABS_PROV], ["set", "Impostazioni", TABS_SET]];
+  const secOf = tab => (TABS_PROV.some(t => t[0] === tab) ? "prov" : TABS_SET.some(t => t[0] === tab) ? "set" : "def");
+  const lastTab = { def: "panoramica", prov: "p_riep", set: "impostazioni" };
 
   function shell(inner) {
-    const g = S.me.ruolo === "gestore", tabs = g ? TABS_G : TABS_A;
+    const g = S.me.ruolo === "gestore", sec = g ? secOf(S.tab) : "", tabs = g ? SECS.find(x => x[0] === sec)[2] : TABS_A;
     return `${Api.mode === "demo" ? `<div class="demobar">Modalità demo — dati salvati solo in questo browser. <a href="#" id="dreset" style="color:inherit">Azzera demo</a></div>` : ""}
     <div class="top"><div class="in">
       <div class="bar"><img src="assets/logo-longato.png" alt="Longato">
@@ -161,11 +167,12 @@
         ${g ? `<button class="btn" id="xls">Scarica Excel</button>` : ""}
         <div class="who"><b>${esc(S.me.nome)}</b><span>${g ? "Gestore" : "Agente"}</span></div>
         <button class="btn" id="logout">Esci</button></div>
+      ${g ? `<div class="secs" role="tablist" aria-label="Sezione">${SECS.map(([k, l]) => `<button role="tab" data-sec="${k}" class="s-${k}" aria-selected="${sec === k}">${l}</button>`).join("")}</div>` : ""}
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}</button>`).join("")}</div>
     </div></div>
-    ${g ? (S.tab === "reale"
-      ? `<div class="indic"><b>Piano reale.</b> Qui scegli la settimana di rilievo e calcoli le date definitive. Gli agenti non vedono queste date.</div>`
-      : `<div class="indic"><b>Stime degli agenti.</b> Le settimane di questa schermata sono indicative. Le date definitive si calcolano nel «Piano reale».</div>`)
+    ${g ? (sec === "def"
+      ? `<div class="indic"><b>Piano definitivo.</b> Qui assegni il rilievo e decidi le date che contano. Gli agenti non le vedono.</div>`
+      : sec === "prov" ? `<div class="indic"><b>Stime degli agenti.</b> Sono solo indicative e servono per consultazione: le date che contano sono nel Piano definitivo.</div>` : "")
       : `<div class="indic"><b>Stima indicativa.</b> La settimana mostrata serve solo per orientarsi con il cliente. Non è una data confermata: la programmazione definitiva la fa l'ufficio produzione.</div>`}
     <main class="shell">${inner}</main>`;
   }
@@ -174,18 +181,22 @@
     if (!S.me) return renderLogin();
     const g = S.me.ruolo === "gestore";
     const views = g
-      ? { panoramica: vPanoramica, offerte: vOfferte, reale: vReale, gantt: vGantt, carico: vCarico, impostazioni: vImpostazioni, utenti: vUtenti }
+      ? { panoramica: vDefPanoramica, reale: vReale, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
       : { cruscotto: vCruscotto, gantt: vGantt, calendario: vCalendario };
     const keepScroll = window.scrollY;
+    if (g && !views[S.tab]) S.tab = "panoramica";
+    document.documentElement.dataset.sec = g ? secOf(S.tab) : "";
     $app.innerHTML = shell((views[S.tab] || Object.values(views)[0])());
     window.scrollTo(0, keepScroll);
     bind();
   }
 
   function bind() {
-    $app.querySelectorAll("[data-tab]").forEach(b => (b.onclick = () => { S.tab = b.dataset.tab; render(); window.scrollTo(0, 0); }));
+    $app.querySelectorAll("[data-tab]").forEach(b => (b.onclick = () => { S.tab = b.dataset.tab; if (S.me.ruolo === "gestore") lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }));
+    $app.querySelectorAll("[data-sec]").forEach(b => (b.onclick = () => { S.tab = lastTab[b.dataset.sec]; render(); window.scrollTo(0, 0); }));
+    $app.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => { e.preventDefault(); S.tab = b.dataset.goto; if (b.dataset.open) S.open[b.dataset.open] = true; lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }));
     const lo = document.getElementById("logout");
-    if (lo) lo.onclick = async () => { await Api.logout(); S.me = null; S.offerte = []; clearInterval(start.t); renderLogin(); };
+    if (lo) lo.onclick = async () => { await Api.logout(); S.me = null; S.offerte = []; document.documentElement.dataset.sec = ""; clearInterval(start.t); renderLogin(); };
     const dr = document.getElementById("dreset"); if (dr) dr.onclick = e => { e.preventDefault(); if (confirm("Azzerare i dati demo?")) Api.reset(); };
     $app.querySelectorAll("[data-new]").forEach(b => (b.onclick = () => openForm(null)));
     $app.querySelectorAll("[data-edit]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.edit))));
@@ -262,18 +273,20 @@
   }
 
   /* ---------- Gantt ---------- */
-  function vGantt() {
+  function vGantt(real) {
     const g = S.me.ruolo === "gestore";
-    let rows = S.rows.filter(r => r.r.ok && isActive(r));
-    if (g && S.agentF) rows = rows.filter(r => r.agente_id === S.agentF);
+    let rows = real
+      ? S.piano.map(p => ({ numero: p.commessa, cliente: p.cliente || "", agente_nome: p.agente_nome || "", agente_id: null, r: E.thaw(p.piano, S.C) })).filter(r => r.r.ok && r.r.posa >= S.cur)
+      : S.rows.filter(r => r.r.ok && isActive(r));
+    if (g && !real && S.agentF) rows = rows.filter(r => r.agente_id === S.agentF);
     const last = Math.min(E.NW, Math.max(S.cur + 26, ...rows.map(r => r.r.posa + 2)));
     const ws = []; for (let w = Math.max(1, S.cur - 1); w <= last; w++) ws.push(w);
     const head = ws.map(w => `<th class="wh ${w === S.cur ? "cur" : ""}">${S.P.cal[w].label}</th>`).join("");
     const body = rows.map(r => `<tr><td class="sl" title="${esc(r.cliente)}">${esc(r.numero)} · ${esc(r.cliente)}${g ? `<br><span class="muted small">${esc(r.agente_nome)}</span>` : ""}</td>
       <td class="sl2">${wl(r.r.posa)}</td>${ws.map(w => { const p = E.phaseAt(r.r, w, S.cfg); return `<td class="c ${p ? "ph-" + p : ""} ${w === S.cur ? "cur" : ""}">${p}</td>`; }).join("")}</tr>`).join("");
-    return `<div class="pagehead"><h2>Gantt${g ? " — tutti gli agenti" : " — le tue offerte"}</h2><div class="sp"></div>
-      ${g ? agentSelect() : ""}</div>
-      ${rows.length ? `<div class="gwrap"><table class="g"><thead><tr><th class="sl">Offerta</th><th class="sl2">Posa</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    return `<div class="pagehead"><h2>Gantt${real ? " — piano definitivo" : g ? " — stime di tutti gli agenti" : " — le tue offerte"}</h2><div class="sp"></div>
+      ${g && !real ? agentSelect() : ""}</div>
+      ${rows.length ? `<div class="gwrap"><table class="g"><thead><tr><th class="sl">${real ? "Commessa" : "Offerta"}</th><th class="sl2">Posa</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="legend">${info("Ogni riga è un'offerta e ogni colonna una settimana. I colori mostrano cosa succede in ciascuna settimana, dal rilievo fino alla posa (P). La settimana corrente è evidenziata.")}${Object.entries(GL).map(([k, l]) => `<span><i class="ph-${k}"></i>${k} · ${l}</span>`).join("")}</div>`
         : `<div class="panel empty"><b>Nessuna offerta da mostrare</b>Le offerte attive compariranno qui.</div>`}`;
   }
@@ -326,7 +339,7 @@
       const mine = act.filter(r => r.agente_id === a.id), nx = mine.filter(r => r.r.ok).sort((x, y) => x.r.posa - y.r.posa)[0];
       return `<tr><td>${esc(a.nome)}${a.attivo ? "" : ' <span class="badge warn">disattivo</span>'}</td><td class="num">${mine.length}</td><td class="num">${mine.reduce((s, r) => s + r.r.fori, 0)}</td><td>${mine.filter(r => avvisiOf(r).length).length ? `<span class="badge warn">${mine.filter(r => avvisiOf(r).length).length}</span>` : '<span class="badge ok">0</span>'}</td></tr>`;
     }).join("");
-    return `<div class="pagehead"><h2>Situazione complessiva</h2></div>
+    return `<div class="pagehead"><h2>Stime degli agenti — riepilogo</h2></div>
       <div class="stats">
         <div class="stat"><div class="l">Offerte attive</div><div class="v num">${act.length}</div></div>
         <div class="stat"><div class="l">Fori in lavorazione</div><div class="v num">${act.reduce((s, r) => s + r.r.fori, 0)}</div></div>
@@ -362,7 +375,7 @@
         : `<div class="empty"><b>Nessuna offerta</b></div>`}</div>`;
   }
 
-  /* ---------- GESTORE: piano reale ---------- */
+  /* ---------- GESTORE: piano definitivo ---------- */
   const WKRE = /^\d{4}-W\d{2}$/;
   const wkOk = v => WKRE.test(v) && E.mondayOfLabel(v) != null;
   const sortReale = list => list.slice().sort((a, b) => (a.rilievo < b.rilievo ? -1 : a.rilievo > b.rilievo ? 1 : a.seq - b.seq));
@@ -376,70 +389,138 @@
     v = String(v || "").trim().toLowerCase(); if (!v) return { list: [] };
     return { list: S.offerte.filter(o => String(o.numero).trim().toLowerCase() === v) };
   }
+  // composizione e tipologie (standard / fuori standard) in forma leggibile
+  const COMP = [["antePvc", "ante PVC"], ["alzPvc", "alzanti PVC"], ["port", "portoncini"], ["anteAlu", "ante alluminio"], ["alzAlu", "alzanti alluminio"], ["scuriPvc", "scuri PVC"], ["scuriAlu", "scuri alluminio"]];
+  function chipsComp(i) {
+    const c = COMP.filter(([k]) => +i[k] > 0).map(([k, l]) => `<span class="chip"><b>${i[k]}</b> ${l}</span>`);
+    if (!c.length && +i.scuri > 0) c.push(`<span class="chip"><b>${i.scuri}</b> scuri</span>`);
+    return `<span class="chip fori"><b>${i.fori}</b> fori</span>` + c.join("");
+  }
+  function chipsTipi(i) {
+    const sel = E.tipiOf(S.cfg).filter(t => (i.tipi || {})[t.name]);
+    if (!sel.length) return `<span class="muted small">nessuna tipologia</span>`;
+    return E.CATS.map((cat, ci) => {
+      const rows = sel.filter(t => t.cat === ci); if (!rows.length) return "";
+      return `<div class="tcat"><span class="tc">${cat}</span>${rows.map(t => { const v = i.tipi[t.name]; return `<span class="chip ${v}">${esc(t.name)} · ${v === "fsd" ? "fuori std" : "standard"}</span>`; }).join("")}</div>`;
+    }).join("");
+  }
+  const nFsd = i => Object.values(i.tipi || {}).filter(v => v === "fsd").length;
   function lookupHtml() {
-    const v = S.prForm.off.trim(); if (!v) return `<p class="sub" style="margin:8px 0 0">Scrivi il numero dell'offerta: cliente, agente e composizione si compilano da soli.</p>`;
+    const v = S.prForm.off.trim(); if (!v) return `<p class="sub" style="margin:8px 0 0">Scrivi il numero dell'offerta: cliente, agente, composizione e tipologie si ricompongono da soli.</p>`;
     const { list } = offertaPerNumero(v);
     if (!list.length) return `<div class="errbox" style="margin:10px 0 0">Nessuna offerta con il numero «${esc(v)}».</div>`;
     if (list.length > 1) return `<div class="errbox" style="margin:10px 0 0">Ci sono ${list.length} offerte con questo numero (agenti diversi). Chiedi di correggere il numero.</div>`;
     const o = list[0], dup = S.piano.find(x => x.offerta_id === o.id);
-    return `<div class="sumbox ${dup ? "bad" : "ok"}" style="display:block;margin:10px 0 0"><b>${esc(o.cliente)}</b> · agente ${esc(o.agente_nome)} · ${o.input.fori} fori · inserita il ${esc(fmtDay(o.creata_il))}<br>
-      <span class="small">Posa indicata dall'agente: <b>${o.piano.posa || "—"}</b>${o.input.posaRich ? ` · richiesta dal cliente: <b>${esc(o.input.posaRich)}</b>` : ""}${dup ? ` · <b>già presente nel piano reale (commessa ${esc(dup.commessa)})</b>` : ""}</span></div>`;
+    return `<div class="sumbox ${dup ? "bad" : "ok"}" style="display:block;margin:10px 0 0"><b>${esc(o.cliente)}</b> · agente ${esc(o.agente_nome)} · inserita il ${esc(fmtDay(o.creata_il))}<br>
+      <span class="small">Posa indicata dall'agente: <b>${o.piano.posa || "—"}</b>${o.input.posaRich ? ` · richiesta dal cliente: <b>${esc(o.input.posaRich)}</b>` : ""}${dup ? ` · <b>già presente nel piano (commessa ${esc(dup.commessa)})</b>` : ""}</span>
+      <div class="chips" style="margin-top:8px">${chipsComp(o.input)}</div><div class="tipi" style="margin-top:6px">${chipsTipi(o.input)}</div></div>`;
   }
+
+  // ---- panoramica definitiva
+  function vDefPanoramica() {
+    const rows = sortReale(S.piano), PR = S.PR, sov = sovraccarichi(PR), curL = S.P.cal[S.cur].label;
+    const act = rows.filter(p => !p.piano.posa || p.piano.posa >= curL), verif = act.filter(p => !p.approvata);
+    const late = act.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length;
+    const attesa = S.rows.filter(r => !r.commessa && !isSospesa(r) && isActive(r)).length, sosp = S.rows.filter(isSospesa).length;
+    const pose = []; for (let w = S.cur; w < Math.min(E.NW, S.cur + 12); w++) {
+      const l = S.P.cal[w].label, m = act.filter(p => p.piano.posa === l);
+      if (m.length) pose.push({ l, w, m });
+    }
+    return `<div class="pagehead"><h2>Situazione del piano definitivo</h2></div>
+      <div class="stats">
+        <div class="stat"><div class="l">Commesse in programma</div><div class="v num">${act.length}</div></div>
+        <div class="stat ${verif.length ? "warn" : "good"}"><div class="l">Da verificare ${info("Commesse con le date calcolate dal sistema che non hai ancora approvato con «OK».")}</div><div class="v num">${verif.length}</div></div>
+        <div class="stat"><div class="l">Fori in programma</div><div class="v num">${act.reduce((t, p) => t + (+p.input.fori || 0), 0)}</div></div>
+        <div class="stat ${late ? "warn" : "good"}"><div class="l">Posa dopo la stima agente ${info("Commesse la cui posa definitiva è più avanti della settimana indicata dall'agente.")}</div><div class="v num">${late}</div></div>
+        <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane del piano definitivo in cui il lavoro assegnato supera la capacità, ad esempio dopo una riduzione di capacità.")}</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
+      </div>
+      <div class="cols"><div>
+        <div class="panel"><h3>Pose nelle prossime settimane</h3>
+          ${pose.length ? `<table class="t"><thead><tr><th>Settimana</th><th>Commesse</th><th>Fori</th></tr></thead><tbody>${pose.map(x => `<tr><td class="num"><b>${x.l}</b></td><td>${x.m.map(p => `${esc(p.commessa)} · ${esc(p.cliente || "")}`).join("<br>")}</td><td class="num">${x.m.reduce((t, p) => t + (+p.input.fori || 0), 0)}</td></tr>`).join("")}</tbody></table>`
+            : `<div class="empty" style="padding:18px"><b>Nessuna posa nelle prossime 12 settimane</b></div>`}</div>
+        <div class="panel"><h3>Saturazione dei reparti</h3><div class="lines">${meters(PR)}</div></div>
+      </div><aside>
+        <div class="panel"><h3>Da verificare</h3>
+          ${verif.length ? verif.slice(0, 10).map(p => `<div class="alert"><i></i><div><b>${esc(p.commessa)} · ${esc(p.cliente || "")}</b><span>Posa ${p.piano.posa || "—"} · <a href="#" data-goto="reale" data-open="${p.id}">apri</a></span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Tutto approvato</b></div>`}</div>
+        <div class="panel"><h3>Sovraccarichi</h3>
+          ${sov.length ? sov.slice(0, 10).map(x => `<div class="alert bad"><i></i><div><b>${PR.cal[x.w].label} · ${x.l.name}</b><span>+${num(x.ex)} ${x.l.unit} oltre la capacità</span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Nessuno</b></div>`}</div>
+        <div class="panel"><h3>Offerte in attesa</h3><p class="sub" style="margin:0 0 8px">Offerte degli agenti senza commessa: <b>${attesa}</b> in corso, <b>${sosp}</b> sospese.</p>
+          <button class="btn sm" data-goto="reale">Collega una commessa</button> <button class="btn sm" data-goto="offerte">Vedi le stime</button></div>
+      </aside></div>`;
+  }
+
+  // ---- elenco commesse
   function vReale() {
     const rows = sortReale(S.piano), PR = S.PR, sov = sovraccarichi(PR);
     const wk = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 60); w++) wk.push(S.P.cal[w].label);
     const defRil = S.prForm.ril && wk.includes(S.prForm.ril) ? S.prForm.ril : S.P.cal[Math.min(E.NW, S.cur + 1)].label;
-    const late = rows.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length;
-    const cell = (p, f, key, val) => {
-      const man = f !== "rilievo" && (p.manuali || {})[key];
-      return `<td class="${man ? "man" : ""}"><input class="inp wkc" data-pr="${p.id}" data-f="${key}" value="${esc(val || "")}" ${man ? 'title="Modificata a mano. Svuota il campo per tornare al calcolo automatico."' : ""} placeholder="${f === "rilievo" ? "" : "auto"}"></td>`;
+    const late = rows.filter(p => (diffSett(p.piano.posa, p.posa_agente) || 0) > 0).length, verif = rows.filter(p => !p.approvata).length;
+    const waiting = S.offerte.filter(o => !o.commessa && !S.piano.some(x => x.offerta_id === o.id)).sort((a, b) => a.seq - b.seq);
+    const cell = (p, key, val) => {
+      const man = key !== "rilievo" && (p.manuali || {})[key];
+      return `<td class="${man ? "man" : ""}"><input class="inp wkc" data-pr="${p.id}" data-f="${key}" value="${esc(val || "")}" ${man ? 'title="Modificata a mano. Svuota il campo per tornare al calcolo automatico."' : ""} placeholder="${key === "rilievo" ? "" : "auto"}"></td>`;
     };
     const body = rows.map(p => {
-      const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), av = (pi.warnings || []).map(E.humanWarn);
+      const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), av = (pi.warnings || []).map(E.humanWarn), op = !!S.open[p.id];
       const dif = d == null ? "—" : d === 0 ? `<span class="badge ok">uguale</span>` : d > 0 ? `<span class="badge bad">+${d} sett.</span>` : `<span class="badge ok">${d} sett.</span>`;
-      return `<tr><td>${esc(p.offerta_num || "")}</td><td><b>${esc(p.commessa)}</b></td><td>${esc(p.cliente || "")}</td><td>${esc(p.agente_nome || "")}</td><td class="num">${p.input.fori}</td>
-        <td class="num">${p.posa_agente || "—"}</td>${cell(p, "rilievo", "rilievo", p.rilievo)}${cell(p, "L", "L", pi.L)}${cell(p, "M", "M", pi.M)}${cell(p, "N", "N", pi.pFirst != null ? pi.pFirst : pi.N)}
-        ${cell(p, "posa", "posa", pi.posa)}<td>${dif}</td>
-        <td class="nw">${av.length ? `<span class="badge warn" title="${esc(av.join(" · "))}">${av.length} avv.</span> ` : ""}<button class="btn sm" data-pr-edit="${p.id}">Composizione</button> <button class="btn sm danger" data-pr-del="${p.id}" title="Toglie la commessa dal piano reale">✕</button></td></tr>`;
+      const fsd = nFsd(p.input);
+      const main = `<tr class="${p.approvata ? "" : "bozza"}"><td class="nw"><button class="btn sm ghost" data-pr-open="${p.id}" aria-expanded="${op}" title="Composizione, tipologie e note">${op ? "▾" : "▸"}</button> ${p.approvata ? `<span class="badge ok">OK</span>` : `<span class="badge warn">Da verificare</span>`}</td>
+        <td><b>${esc(p.commessa)}</b><br><span class="muted small">offerta ${esc(p.offerta_num || "")}</span></td>
+        <td class="cl">${esc(p.cliente || "")}<br><span class="muted small">${esc(p.agente_nome || "")} · ${p.input.fori} fori · ${fsd ? fsd + " fuori std" : "tutto standard"}</span></td>
+        <td class="num">${p.posa_agente || "—"}</td>${cell(p, "rilievo", p.rilievo)}${cell(p, "L", pi.L)}${cell(p, "M", pi.M)}${cell(p, "N", pi.pFirst != null ? pi.pFirst : pi.N)}
+        ${cell(p, "posa", pi.posa)}<td>${dif}</td>
+        <td class="nw">${av.length ? `<span class="badge warn" title="${esc(av.join(" · "))}">${av.length} avv.</span> ` : ""}${p.approvata ? "" : `<button class="btn sm pri" data-pr-ok="${p.id}">Dai l'OK</button>`}</td></tr>`;
+      const det = op ? `<tr class="det"><td colspan="11"><div class="detbox">
+          <div><h4>Composizione</h4><div class="chips">${chipsComp(p.input)}</div>${p.posa_rich ? `<p class="small muted" style="margin:8px 0 0">Posa richiesta dal cliente: <b>${esc(p.posa_rich)}</b></p>` : ""}</div>
+          <div><h4>Tipologie</h4><div class="tipi">${chipsTipi(p.input)}</div></div>
+          <div><h4>Note</h4><textarea class="inp" rows="4" data-note="${p.id}" placeholder="Note sulla commessa…">${esc(p.note || "")}</textarea><span class="small muted">Si salvano uscendo dal campo.</span></div>
+          <div class="dact"><button class="btn sm" data-pr-edit="${p.id}">Modifica composizione</button>${p.approvata ? `<button class="btn sm" data-pr-unok="${p.id}">Togli l'OK</button>` : `<button class="btn sm pri" data-pr-ok="${p.id}">Dai l'OK</button>`}<button class="btn sm danger" data-pr-del="${p.id}" title="Toglie la commessa dal piano definitivo">Rimuovi</button></div>
+        </div></td></tr>` : "";
+      return main + det;
     }).join("");
-    return `<div class="pagehead"><h2>Piano reale</h2><div class="sp"></div><button class="btn" id="pr-all">Ricalcola tutto</button></div>
-      <p class="sub">${info("Questo è il calcolatore definitivo. Parte dalle offerte degli agenti: scegli la settimana di rilievo e le altre date si calcolano con gli stessi parametri delle impostazioni. Ogni data si può modificare a mano: le successive si ricalcolano. Il piano reale ha la sua capacità e non cambia le stime degli agenti.")} Date definitive calcolate a partire dal rilievo che assegni. Le offerte degli agenti restano come stima di confronto.</p>
+    return `<div class="pagehead"><h2>Commesse del piano definitivo</h2><div class="sp"></div><button class="btn" id="pr-all">Ricalcola tutto</button></div>
+      <p class="sub">${info("Parte dalle offerte degli agenti: scegli la settimana di rilievo e le altre date si calcolano con gli stessi parametri delle impostazioni. Controlla le date, poi dai l'OK. Ogni data si può modificare a mano: le successive si ricalcolano. Il piano definitivo ha il suo carico e non cambia le stime degli agenti.")} Collega l'offerta, controlla la composizione, poi dai l'OK. Le date si possono modificare a mano.</p>
       <div class="stats">
         <div class="stat"><div class="l">Commesse nel piano</div><div class="v num">${rows.length}</div></div>
-        <div class="stat"><div class="l">Fori</div><div class="v num">${rows.reduce((t, p) => t + (+p.input.fori || 0), 0)}</div></div>
-        <div class="stat ${late ? "warn" : "good"}"><div class="l">Posa dopo la stima agente ${info("Commesse la cui posa reale è più avanti della settimana indicata dall'agente.")}</div><div class="v num">${late}</div></div>
-        <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane del piano reale in cui il lavoro assegnato supera la capacità, ad esempio dopo una riduzione di capacità.")}</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
+        <div class="stat ${verif ? "warn" : "good"}"><div class="l">Da verificare</div><div class="v num">${verif}</div></div>
+        <div class="stat ${late ? "warn" : "good"}"><div class="l">Posa dopo la stima agente</div><div class="v num">${late}</div></div>
+        <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
       </div>
-      <div class="panel"><h3>Aggiungi una commessa ${info("Scrivi il numero dell'offerta, il numero di commessa e la settimana in cui assegni il rilievo. Il sistema calcola il resto. L'offerta dell'agente risulterà «Confermata».")}</h3>
+      <div class="panel" id="pr-add-panel"><h3>Collega un'offerta ${info("Scrivi il numero dell'offerta, il numero di commessa e la settimana in cui assegni il rilievo. La composizione e le tipologie dell'offerta si ricompongono qui e il sistema calcola le date. L'offerta dell'agente risulterà «Confermata».")}</h3>
         <div class="addrow">
           <label class="field"><span>N° offerta</span><input class="inp" id="pr-off" value="${esc(S.prForm.off)}" autocomplete="off" placeholder="es. 2026-118"></label>
           <label class="field"><span>N° commessa</span><input class="inp" id="pr-comm" value="${esc(S.prForm.comm)}" autocomplete="off"></label>
           <label class="field"><span>Inizio rilievo</span><select class="inp" id="pr-ril">${wk.map(w => `<option ${w === defRil ? "selected" : ""}>${w}</option>`).join("")}</select></label>
-          <button class="btn pri" id="pr-add" style="align-self:end;margin-bottom:14px">Aggiungi al piano reale</button>
-        </div><div id="pr-look">${lookupHtml()}</div></div>
-      <div class="panel"><h3>Saturazione dei reparti (piano reale)</h3><div class="lines">${meters(PR)}</div></div>
-      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t rt"><thead><tr><th>Offerta</th><th>Commessa</th><th>Cliente</th><th>Agente</th><th>Fori</th><th>Posa agente</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa reale</th><th>Differenza</th><th></th></tr></thead><tbody>${body}</tbody></table>`
-        : `<div class="empty"><b>Nessuna commessa nel piano reale</b>Aggiungi la prima qui sopra.</div>`}</div>
-      <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span>Cambiando una data, quelle successive si ricalcolano. Svuota un campo per tornare al calcolo automatico. Cambiando il rilievo si riparte da capo.</span></div>
-      ${sov.length ? `<div class="panel"><h3>Sovraccarichi del piano reale</h3>${sov.slice(0, 12).map(x => `<div class="alert bad"><i></i><div><b>${PR.cal[x.w].label} · ${x.l.name}</b><span>+${num(x.ex)} ${x.l.unit} oltre la capacità</span></div></div>`).join("")}</div>` : ""}`;
+          <button class="btn pri" id="pr-add" style="align-self:end;margin-bottom:14px">Aggiungi al piano</button>
+        </div><div id="pr-look">${lookupHtml()}</div>
+        ${waiting.length ? `<details class="wait"><summary>Offerte ancora senza commessa (${waiting.length})</summary><div class="scroll"><table class="t"><tbody>${waiting.map(o => `<tr><td><b>${esc(o.numero)}</b></td><td>${esc(o.cliente)}</td><td class="muted small">${esc(o.agente_nome)}</td><td class="num small">${o.piano.posa || "—"}</td><td>${isSospesa(o) ? '<span class="badge warn">sospesa</span>' : ""}</td><td><button class="btn sm" data-link="${esc(o.numero)}">Collega</button></td></tr>`).join("")}</tbody></table></div></details>` : ""}</div>
+      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t rt"><thead><tr><th>Stato</th><th>Commessa</th><th>Cliente</th><th>Posa agente</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa definitiva</th><th>Differenza</th><th></th></tr></thead><tbody>${body}</tbody></table>`
+        : `<div class="empty"><b>Nessuna commessa nel piano definitivo</b>Collega la prima offerta qui sopra.</div>`}</div>
+      <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span><i class="bz-i"></i>Da verificare</span><span>▸ apre composizione, tipologie e note. Cambiando una data, quelle successive si ricalcolano; svuota il campo per tornare all'automatico. Cambiando il rilievo si riparte da capo.</span></div>
+      ${sov.length ? `<div class="panel"><h3>Sovraccarichi del piano definitivo</h3>${sov.slice(0, 12).map(x => `<div class="alert bad"><i></i><div><b>${PR.cal[x.w].label} · ${x.l.name}</b><span>+${num(x.ex)} ${x.l.unit} oltre la capacità</span></div></div>`).join("")}</div>` : ""}`;
+  }
+  async function salvaRiga(np, ok) {
+    await busy(async () => { try { await Api.pianoSalva(np); await refresh(true); if (ok) toast(ok); } catch (e) { toast(e.message, true); } });
+    render();
   }
   function bindReale() {
     const q = id => document.getElementById(id);
     const sync = () => { S.prForm = { off: q("pr-off").value, comm: q("pr-comm").value, ril: q("pr-ril").value }; q("pr-look").innerHTML = lookupHtml(); };
     ["pr-off", "pr-comm"].forEach(id => (q(id).oninput = sync)); q("pr-ril").onchange = sync;
+    document.querySelectorAll("[data-link]").forEach(b => (b.onclick = () => { S.prForm.off = b.dataset.link; render(); const el = document.getElementById("pr-comm"); if (el) { el.focus(); el.scrollIntoView({ block: "center" }); } }));
     q("pr-add").onclick = async () => {
       sync();
       const { list } = offertaPerNumero(S.prForm.off), comm = S.prForm.comm.trim(), ril = S.prForm.ril;
       if (list.length !== 1) return toast(list.length ? "Più offerte con questo numero." : "Offerta non trovata: controlla il numero.", true);
       const o = list[0];
-      if (S.piano.some(x => x.offerta_id === o.id)) return toast("Questa offerta è già nel piano reale.", true);
+      if (S.piano.some(x => x.offerta_id === o.id)) return toast("Questa offerta è già nel piano.", true);
       if (!comm) return toast("Inserisci il numero di commessa.", true);
-      if (S.piano.some(x => String(x.commessa).trim().toLowerCase() === comm.toLowerCase())) return toast("Numero di commessa già presente nel piano reale.", true);
+      if (S.piano.some(x => String(x.commessa).trim().toLowerCase() === comm.toLowerCase())) return toast("Numero di commessa già presente nel piano.", true);
       if (!wkOk(ril)) return toast("Scegli la settimana di rilievo.", true);
-      const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: JSON.parse(JSON.stringify(o.input)), rilievo: ril, posa_rich: o.input.posaRich || "", manuali: {} };
+      const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: JSON.parse(JSON.stringify(o.input)), rilievo: ril, posa_rich: o.input.posaRich || "", manuali: {}, note: "", approvata: false };
       np.piano = calcReale(np, S.realOcc);
       await busy(async () => {
-        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); S.prForm = { off: "", comm: "", ril: "" }; await refresh(true); toast(`Commessa ${comm} aggiunta al piano reale.`); }
+        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); S.prForm = { off: "", comm: "", ril: "" }; await refresh(true); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
         catch (e) { toast(e.message, true); }
       });
       render();
@@ -451,7 +532,7 @@
         try {
           const done = [];
           for (const p of sortReale(S.piano)) { const np = { ...p }; np.piano = calcReale(np, realOccOf(done)); done.push(np); await Api.pianoSalva(np); }
-          await refresh(true); toast("Piano reale ricalcolato.");
+          await refresh(true); toast("Piano ricalcolato.");
         } catch (e) { toast(e.message, true); }
       });
       render();
@@ -464,15 +545,21 @@
       if (key === "rilievo") { np.rilievo = v; np.manuali = {}; }
       else if (v) np.manuali[key] = v; else delete np.manuali[key];
       np.piano = calcReale(np, occMinus(S.realOcc, p.piano.foot));
-      await busy(async () => { try { await Api.pianoSalva(np); await refresh(true); } catch (e) { toast(e.message, true); } });
-      render();
+      await salvaRiga(np);
+    }));
+    document.querySelectorAll("[data-pr-open]").forEach(b => (b.onclick = () => { S.open[b.dataset.prOpen] = !S.open[b.dataset.prOpen]; render(); }));
+    document.querySelectorAll("[data-pr-ok]").forEach(b => (b.onclick = () => { const np = JSON.parse(JSON.stringify(S.piano.find(x => x.id === b.dataset.prOk))); np.approvata = true; salvaRiga(np, "Commessa approvata."); }));
+    document.querySelectorAll("[data-pr-unok]").forEach(b => (b.onclick = () => { const np = JSON.parse(JSON.stringify(S.piano.find(x => x.id === b.dataset.prUnok))); np.approvata = false; salvaRiga(np); }));
+    document.querySelectorAll("textarea[data-note]").forEach(t => (t.onchange = async () => {
+      const p = S.piano.find(x => x.id === t.dataset.note), np = JSON.parse(JSON.stringify(p)); np.note = t.value;
+      try { await Api.pianoSalva(np); p.note = t.value; toast("Nota salvata."); } catch (e) { toast(e.message, true); }
     }));
     document.querySelectorAll("[data-pr-edit]").forEach(b => (b.onclick = () => openReale(S.piano.find(x => x.id === b.dataset.prEdit))));
     document.querySelectorAll("[data-pr-del]").forEach(b => (b.onclick = async () => {
       const p = S.piano.find(x => x.id === b.dataset.prDel);
-      if (!confirm(`Togliere la commessa ${p.commessa} dal piano reale?\nL'offerta ${p.offerta_num} tornerà senza commessa.`)) return;
+      if (!confirm(`Togliere la commessa ${p.commessa} dal piano definitivo?\nL'offerta ${p.offerta_num} tornerà senza commessa.`)) return;
       await busy(async () => {
-        try { await Api.pianoElimina(p.id); if (p.offerta_id) await Api.impostaCommessa(p.offerta_id, ""); await refresh(true); toast("Commessa tolta dal piano reale."); }
+        try { await Api.pianoElimina(p.id); if (p.offerta_id) await Api.impostaCommessa(p.offerta_id, ""); await refresh(true); toast("Commessa tolta dal piano."); }
         catch (e) { toast(e.message, true); }
       });
       render();
@@ -489,7 +576,7 @@
     const host = document.createElement("div"); host.id = "drawerhost";
     host.innerHTML = `<div class="scrim" data-x></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Composizione commessa">
       <header><div class="top2"><h2>Commessa ${esc(p.commessa)}</h2><button class="btn sm" data-x type="button">Chiudi</button></div>
-        <div class="stamp">Offerta ${esc(p.offerta_num || "")} · ${esc(p.cliente || "")}<br>Le modifiche valgono solo per il piano reale: l'offerta dell'agente resta com'è.</div></header>
+        <div class="stamp">Offerta ${esc(p.offerta_num || "")} · ${esc(p.cliente || "")}<br>Le modifiche valgono solo per il piano definitivo: l'offerta dell'agente resta com'è.</div></header>
       <div class="body"><h3>Fori e serramenti</h3>
         <div class="fgrid"><label class="field req"><span>Numero fori</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${form.fori}" placeholder="0"></label></div>
         <div class="fgrid">${nf("antePvc", "Ante PVC")}${nf("alzPvc", "Alzanti PVC")}${nf("port", "Portoncini")}${nf("anteAlu", "Ante alluminio")}${nf("alzAlu", "Alzanti alluminio")}${nf("scuriPvc", "Scuri PVC")}${nf("scuriAlu", "Scuri alluminio")}</div>
@@ -524,7 +611,7 @@
       q("#r-save").disabled = v.errs.length > 0;
       if (v.errs.length) { q("#res").innerHTML = ""; return; }
       const np = { ...p, input: v.i, posa_rich: form.posaRich }, pi = calcReale(np, occMinus(S.realOcc, p.piano.foot));
-      q("#res").innerHTML = `<div class="res"><div><small class="muted">Posa reale calcolata</small><div class="posa">${pi.ok ? pi.posa : "non calcolabile"}</div></div><div class="small" style="flex:1">Posa indicata dall'agente: ${p.posa_agente || "—"}.${Object.keys(p.manuali || {}).length ? " Le date modificate a mano restano." : ""}</div></div>`;
+      q("#res").innerHTML = `<div class="res"><div><small class="muted">Posa definitiva calcolata</small><div class="posa">${pi.ok ? pi.posa : "non calcolabile"}</div></div><div class="small" style="flex:1">Posa indicata dall'agente: ${p.posa_agente || "—"}.${Object.keys(p.manuali || {}).length ? " Le date modificate a mano restano." : ""}</div></div>`;
     }
     syncSeg(); update();
     q("#r-save").onclick = async () => {
@@ -536,15 +623,15 @@
   }
 
   /* ---------- GESTORE: carico ---------- */
-  function vCarico() {
-    const L = E.LINES, P = S.P, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
+  function vCarico(real) {
+    const L = E.LINES, P = real ? S.PR : S.P, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
     const cells = wks.map(w => `<div class="wk ${w === S.cur ? "cur" : ""}">${P.cal[w].label}</div>` + L.map(l => {
       const cp = P.cap[l.key][w], ld = P.load[l.key][w];
       if (cp <= 0 && ld <= 0) return `<div class="cl">chiuso</div>`;
       const p = cp > 0 ? ld / cp : 9, over = ld > cp + 0.01;
       return `<div class="${over ? "over" : ""}"><span class="num"><b>${num(ld)}</b> / ${num(cp)} ${l.unit}</span><div class="meter"><i class="${p >= 1.0 ? "full" : p >= .75 ? "hi" : ""}" style="width:${Math.min(100, p * 100).toFixed(0)}%"></i></div></div>`;
     }).join("")).join("");
-    return `<div class="pagehead"><h2>Carico per settimana</h2></div><p class="sub">Carico totale di tutti gli agenti rispetto alla capacità. Sfondo rosso = oltre la capacità.</p>
+    return `<div class="pagehead"><h2>Carico per settimana${real ? " — piano definitivo" : " — stime degli agenti"}</h2></div><p class="sub">${real ? "Carico delle commesse del piano definitivo" : "Carico delle offerte di tutti gli agenti"} rispetto alla capacità. Sfondo rosso = oltre la capacità.</p>
       <div class="panel scroll" style="padding:0"><div class="cg"><div class="h">Settimana</div>${L.map(l => `<div class="h">${l.name}</div>`).join("")}${cells}</div></div>`;
   }
 

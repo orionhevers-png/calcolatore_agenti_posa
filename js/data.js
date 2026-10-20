@@ -57,10 +57,10 @@
       },
       async impostaCommessa(id, commessa) { const { error } = await sb.rpc("imposta_commessa", { p_id: id, p_commessa: commessa || "" }); fail(error); },
       async pianoSalva(r) {
-        const row = { offerta_id: r.offerta_id || null, offerta_num: r.offerta_num, cliente: r.cliente, agente_nome: r.agente_nome, posa_agente: r.posa_agente || null, commessa: r.commessa, input: r.input, rilievo: r.rilievo, posa_rich: r.posa_rich || null, manuali: r.manuali || {}, piano: r.piano, aggiornata_il: new Date().toISOString() };
+        const row = { offerta_id: r.offerta_id || null, offerta_num: r.offerta_num, cliente: r.cliente, agente_nome: r.agente_nome, posa_agente: r.posa_agente || null, commessa: r.commessa, input: r.input, rilievo: r.rilievo, posa_rich: r.posa_rich || null, manuali: r.manuali || {}, note: r.note || null, approvata: !!r.approvata, piano: r.piano, aggiornata_il: new Date().toISOString() };
         const q = r.id ? sb.from("piano_reale").update(row).eq("id", r.id) : sb.from("piano_reale").insert(row);
         const { error } = await q;
-        if (error && /piano_reale|schema cache/.test(error.message)) error.message = "Manca l'aggiornamento del database: esegui lo script «aggiornamento_piano_reale.sql» in Supabase → SQL Editor.";
+        if (error && /piano_reale|schema cache/.test(error.message)) error.message = "Manca l'aggiornamento del database: esegui di nuovo lo script «aggiornamento_piano_reale.sql» in Supabase → SQL Editor.";
         fail(error);
       },
       async pianoElimina(id) { const { error } = await sb.from("piano_reale").delete().eq("id", id); fail(error); },
@@ -156,7 +156,7 @@
       },
       async pianoSalva(r) {
         const now = new Date().toISOString();
-        const row = { offerta_id: r.offerta_id || null, offerta_num: r.offerta_num, cliente: r.cliente, agente_nome: r.agente_nome, posa_agente: r.posa_agente || null, commessa: r.commessa, input: r.input, rilievo: r.rilievo, posa_rich: r.posa_rich || null, manuali: r.manuali || {}, piano: r.piano, aggiornata_il: now };
+        const row = { offerta_id: r.offerta_id || null, offerta_num: r.offerta_num, cliente: r.cliente, agente_nome: r.agente_nome, posa_agente: r.posa_agente || null, commessa: r.commessa, input: r.input, rilievo: r.rilievo, posa_rich: r.posa_rich || null, manuali: r.manuali || {}, note: r.note || null, approvata: !!r.approvata, piano: r.piano, aggiornata_il: now };
         if (r.id) Object.assign(mem.piano.find(x => x.id === r.id), row);
         else mem.piano.push({ id: "p" + Date.now() + Math.random().toString(36).slice(2, 6), ...row, creata_il: now, seq: mem.nextPr++ });
         store(mem);

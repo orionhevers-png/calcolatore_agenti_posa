@@ -33,11 +33,12 @@ Repository → **Settings → Pages** → Source: *Deploy from a branch* → `ma
 * **Salvataggi simultanei**: se due agenti prenotano lo stesso slot, il secondo viene ricalcolato in automatico.
 * **Excel** (gestore): Cruscotto, Offerte, Gantt, Carico, Impostazioni, Tempi_Materiali. Contiene i valori calcolati.
 
-## Piano reale e offerte sospese (aggiornamento)
+## Piano definitivo e offerte sospese (aggiornamento)
 
 **Una tantum:** in Supabase → SQL Editor → New query, incolla il contenuto di `supabase/aggiornamento_piano_reale.sql` e premi Run. Poi ricarica il sito (Ctrl+F5).
 
-- **Piano reale (solo gestore).** Scrivi il numero offerta, il numero di commessa e la settimana di rilievo: il sistema calcola conferma ordine, acquisti, produzione e posa con gli stessi parametri delle Impostazioni. Ogni data si può modificare a mano (le successive si ricalcolano; svuota il campo per tornare all'automatico). Il piano reale ha un proprio carico e non cambia le stime degli agenti. «Ricalcola tutto» riordina le commesse per settimana di rilievo.
+- **Sito del gestore in tre sezioni.** «Piano definitivo» (petrolio, quella principale: panoramica, commesse, Gantt, carico), «Stime agenti» (ambra, solo consultazione) e «Impostazioni».
+- **Piano definitivo, commesse (solo gestore).** Scrivi il numero offerta, il numero di commessa e la settimana di rilievo: il sistema calcola conferma ordine, acquisti, produzione e posa con gli stessi parametri delle Impostazioni. Ogni data si può modificare a mano (le successive si ricalcolano; svuota il campo per tornare all'automatico). Ogni commessa mostra composizione e tipologie (standard / fuori standard), ha un pannello note e un «OK» di approvazione. Il piano definitivo ha un proprio carico e non cambia le stime degli agenti. «Ricalcola tutto» riordina le commesse per settimana di rilievo.
 - **Offerte confermate.** Quando il gestore assegna la commessa, l'offerta dell'agente mostra solo «Confermata» e il numero commessa; l'agente non può più modificarla né cancellarla.
 - **Offerte sospese.** Senza commessa dopo 15 giorni (modificabile in Impostazioni) l'offerta passa nel riquadro «Offerte sospese» dell'agente, che può cancellarla (libera lo slot) o riprogrammarla (data di inserimento = oggi, nuova scelta della settimana di posa).
 

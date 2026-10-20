@@ -55,16 +55,18 @@ window.exportExcel = async function (S) {
 
   /* ---- Piano reale ---- */
   ws = wb.addWorksheet("Piano_reale", { views: [{ state: "frozen", ySplit: 3, xSplit: 3 }] });
-  title(ws, "Piano reale", "Date definitive calcolate dal rilievo assegnato. Le celle azzurre sono state modificate a mano. Formato ISO (anno-Wnumero).");
-  ws.addRow(["Offerta", "Commessa", "Cliente", "Agente", "Fori", "Posa agente (stima)", "Rilievo", "Conferma ordine", "Acquisti", "Produzione", "Posa reale", "Differenza (sett.)", "Avvisi"]); hdr(ws, 3);
+  title(ws, "Piano definitivo — commesse", "Date definitive calcolate dal rilievo assegnato. Le celle azzurre sono state modificate a mano. Formato ISO (anno-Wnumero).");
+  ws.addRow(["Offerta", "Commessa", "Cliente", "Agente", "Fori", "Posa agente (stima)", "Rilievo", "Conferma ordine", "Acquisti", "Produzione", "Posa definitiva", "Differenza (sett.)", "Stato", "Composizione", "Tipologie (std / fuori std)", "Note", "Avvisi"]); hdr(ws, 3);
   const dsett = (a, b) => (a && b ? Math.round((E.mondayOfLabel(a) - E.mondayOfLabel(b)) / (7 * E.DAY)) : "");
   for (const p of (S.piano || []).slice().sort((a, b) => (a.rilievo < b.rilievo ? -1 : a.rilievo > b.rilievo ? 1 : a.seq - b.seq))) {
     const pi = p.piano, mn = p.manuali || {};
-    const rr = ws.addRow([p.offerta_num, p.commessa, p.cliente, p.agente_nome, p.input.fori, p.posa_agente || "", p.rilievo, pi.L, pi.M, pi.pFirst != null ? pi.pFirst : pi.N, pi.posa || "", dsett(pi.posa, p.posa_agente), (pi.warnings || []).map(E.humanWarn).join(" | ")]);
+    const i = p.input, comp = [["antePvc", "ante PVC"], ["alzPvc", "alzanti PVC"], ["port", "portoncini"], ["anteAlu", "ante alu"], ["alzAlu", "alzanti alu"], ["scuriPvc", "scuri PVC"], ["scuriAlu", "scuri alu"]].filter(([k]) => +i[k] > 0).map(([k, l]) => i[k] + " " + l).join(", ");
+    const tip = Object.entries(i.tipi || {}).map(([n, v]) => n + (v === "fsd" ? " (fuori std)" : " (std)")).join("; ");
+    const rr = ws.addRow([p.offerta_num, p.commessa, p.cliente, p.agente_nome, i.fori, p.posa_agente || "", p.rilievo, pi.L, pi.M, pi.pFirst != null ? pi.pFirst : pi.N, pi.posa || "", dsett(pi.posa, p.posa_agente), p.approvata ? "OK" : "Da verificare", comp, tip, p.note || "", (pi.warnings || []).map(E.humanWarn).join(" | ")]);
     [["L", 8], ["M", 9], ["N", 10], ["posa", 11]].forEach(([k, c]) => { if (mn[k]) rr.getCell(c).fill = fillOf("DCECF9"); });
   }
-  ws.columns.forEach((c, k) => (c.width = [12, 12, 26, 16, 7, 16, 11, 14, 11, 12, 12, 14, 60][k]));
-  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 13 } };
+  ws.columns.forEach((c, k) => (c.width = [12, 12, 26, 16, 7, 16, 11, 14, 11, 12, 12, 14, 14, 40, 60, 40, 60][k]));
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 17 } };
 
   /* ---- Gantt ---- */
   ws = wb.addWorksheet("Gantt", { views: [{ state: "frozen", ySplit: 3, xSplit: 4 }] });

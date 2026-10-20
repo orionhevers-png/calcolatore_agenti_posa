@@ -197,6 +197,9 @@ create table if not exists public.piano_reale (
   aggiornata_il timestamptz not null default now(),
   seq           bigint generated always as identity
 );
+-- note del gestore e OK sul piano (aggiunte successivamente: si possono rieseguire)
+alter table public.piano_reale add column if not exists note text;
+alter table public.piano_reale add column if not exists approvata boolean not null default false;
 create unique index if not exists piano_reale_offerta_uq on public.piano_reale(offerta_id) where offerta_id is not null;
 
 alter table public.piano_reale enable row level security;
