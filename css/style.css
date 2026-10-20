@@ -266,7 +266,7 @@ table.g{border-collapse:separate;border-spacing:0}
 .tipi{display:grid;gap:6px}
 .tcat{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .tcat .tc{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);min-width:110px}
-.rt tr.bozza>td{background:color-mix(in srgb,var(--warn-soft) 45%,transparent)}
+.rt tr.bozza>td{background:color-mix(in srgb,var(--warn-soft) 45%,transparent)!important}
 .rt tr.bozza>td.man{background:var(--accent-soft)}
 .rt tr.det>td{background:var(--surface2);padding:12px 14px}
 .detbox{display:grid;grid-template-columns:1fr 1.6fr 1.2fr;gap:18px;align-items:start;white-space:normal}
@@ -294,3 +294,16 @@ details.wait summary{cursor:pointer;font-size:13px;color:var(--accent);font-weig
 .filt .addrow{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .filt .field{margin-bottom:6px}
 .rt td.posa{font-size:inherit;font-weight:700}
+
+/* fasi colorate */
+.rt th.f-ril,.rt th.f-ord,.rt th.f-acq,.rt th.f-prod,.rt th.f-posa{border-bottom:3px solid}
+th.f-ril{border-color:var(--ph-ril)!important} th.f-ord{border-color:var(--ph-ord)!important} th.f-acq{border-color:var(--ph-att)!important} th.f-prod{border-color:var(--ph-prod)!important} th.f-posa{border-color:var(--ph-posa)!important}
+.rt td.f-ril{background:color-mix(in srgb,var(--ph-ril) 32%,transparent)!important}
+.rt td.f-ord{background:color-mix(in srgb,var(--ph-ord) 85%,transparent)!important}
+.rt td.f-acq{background:color-mix(in srgb,var(--ph-att) 50%,transparent)!important}
+.rt td.f-prod{background:color-mix(in srgb,var(--ph-prod) 36%,transparent)!important}
+.rt td.f-posa{background:color-mix(in srgb,var(--ph-posa) 26%,transparent)!important}
+.rt td.man{box-shadow:inset 0 0 0 2px var(--accent)}
+.filbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.filbar .inp{flex:1;min-width:220px;max-width:380px}
+.filt[hidden]{display:none}

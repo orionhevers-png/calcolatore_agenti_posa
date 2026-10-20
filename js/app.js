@@ -7,7 +7,7 @@
     me: null, versions: [], offerte: [], occ: { versione: 0, righe: [] }, profili: [],
     tab: "cruscotto", showDone: false, agentF: "", loginErr: "", busy: false, drawer: null,
     piano: [], prForm: { off: "", comm: "", ril: "", oid: null, form: null }, open: {}, pin: {},
-    fl: { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }, gq: "", gord: "posa"
+    fl: { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }, gq: "", gord: "posa", flOpen: false
   };
   window.S = S;
 
@@ -542,22 +542,22 @@
     const rows = elencoRows(), tot = S.piano.length;
     if (!rows.length) return `<div class="panel empty"><b>${tot ? "Nessuna commessa con questi filtri" : "Nessuna commessa nel piano definitivo"}</b>${tot ? "Cambia o azzera i filtri." : ""}</div>`;
     return `<p class="sub" style="margin:0 0 8px"><b>${rows.length}</b> di ${tot} commesse · ${rows.reduce((t, p) => t + (+p.input.fori || 0), 0)} fori</p>
-      <div class="panel scroll" style="padding:0"><table class="t rt"><thead><tr><th>Commessa</th><th>Cliente</th><th>Agente</th><th>Fori</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa definitiva</th><th>Posa agente</th><th>Differenza</th><th>Stato</th><th></th></tr></thead><tbody>
+      <div class="panel scroll" style="padding:0"><table class="t rt"><thead><tr><th>Commessa</th><th>Cliente</th><th>Agente</th><th>Fori</th><th class="f-ril">Rilievo</th><th class="f-ord">Conferma ordine</th><th class="f-acq">Acquisti</th><th class="f-prod">Produzione</th><th class="f-posa">Posa definitiva</th><th>Posa agente</th><th>Differenza</th><th>Stato</th><th></th></tr></thead><tbody>
       ${rows.map(p => {
         const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), fsd = nFsd(p.input);
         const dif = d == null ? "—" : d === 0 ? `<span class="badge ok">uguale</span>` : d > 0 ? `<span class="badge bad">+${d} sett.</span>` : `<span class="badge ok">${d} sett.</span>`;
-        const man = k => ((p.manuali || {})[k] ? ' class="man"' : "");
+        const man = k => ((p.manuali || {})[k] ? " man" : "");
         const prod = pi.pFirst != null ? (pi.pLast && pi.pLast !== pi.pFirst ? `${pi.pFirst} → ${pi.pLast}` : pi.pFirst) : pi.N;
         return `<tr class="${p.approvata ? "" : "bozza"}"><td><b>${esc(p.commessa)}</b><br><span class="muted small">offerta ${esc(p.offerta_num || "")}</span></td>
           <td>${esc(p.cliente || "")}<br><span class="muted small">${fsd ? fsd + " fuori std" : "tutto standard"}</span></td><td>${esc(p.agente_nome || "")}</td><td class="num">${p.input.fori}</td>
-          <td class="num">${esc(p.rilievo)}</td><td class="num"${man("L")}>${pi.L || "—"}</td><td class="num"${man("M")}>${pi.M || "—"}</td><td class="num"${man("N")}>${esc(prod || "—")}</td>
-          <td class="num posa"${man("posa")}>${pi.posa || "—"}</td><td class="num">${p.posa_agente || "—"}</td><td>${dif}</td>
+          <td class="num f-ril">${esc(p.rilievo)}</td><td class="num f-ord${man("L")}">${pi.L || "—"}</td><td class="num f-acq${man("M")}">${pi.M || "—"}</td><td class="num f-prod${man("N")}">${esc(prod || "—")}</td>
+          <td class="num posa f-posa${man("posa")}">${pi.posa || "—"}</td><td class="num">${p.posa_agente || "—"}</td><td>${dif}</td>
           <td>${p.approvata ? `<span class="badge ok">OK</span>` : `<span class="badge warn">Da verificare</span>`}</td>
           <td><button class="btn sm" data-goto="reale" data-open="${p.id}">Apri</button></td></tr>`;
       }).join("")}</tbody></table></div>`;
   }
   function vElenco() {
-    const f = S.fl, all = S.piano;
+    const f = S.fl, all = S.piano, nAct = ["ag", "stato", "rilDa", "rilA", "posaDa", "posaA", "comp", "conf"].filter(k => f[k]).length;
     const uniq = fn => [...new Set(all.map(fn).filter(Boolean))].sort();
     const opt = (list, cur, blank) => `<option value="">${blank}</option>` + list.map(x => `<option ${x === cur ? "selected" : ""}>${esc(x)}</option>`).join("");
     const ril = uniq(p => p.rilievo), pos = uniq(p => p.piano.posa), ags = uniq(p => p.agente_nome);
@@ -565,8 +565,9 @@
     const so = (cur, arr) => arr.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
     return `<div class="pagehead"><h2>Tutte le commesse confermate</h2></div>
       <p class="sub">${info("Tutte le commesse del piano definitivo con le loro date. I filtri si possono combinare: ad esempio un agente, con posa tra due settimane e solo quelle con fuori standard. Per modificare una commessa premi «Apri».")} Rilievo, conferma ordine, acquisti, produzione e posa di ogni commessa. Combina i filtri per restringere l'elenco.</p>
-      <div class="panel filt"><div class="addrow">
-        <label class="field"><span>Cerca</span><input class="inp" data-fl="q" value="${esc(f.q)}" placeholder="commessa, offerta, cliente…" autocomplete="off"></label>
+      <div class="filbar"><input class="inp" data-fl="q" value="${esc(f.q)}" placeholder="Cerca commessa, offerta, cliente…" autocomplete="off">
+        <button class="btn" id="fl-toggle" aria-expanded="${!!S.flOpen}">Filtri${nAct ? ` <span class="badge info">${nAct}</span>` : ""} ${S.flOpen ? "▴" : "▾"}</button>${nAct || f.q ? `<button class="btn ghost" id="fl-reset2">Azzera</button>` : ""}</div>
+      <div class="panel filt" id="fl-panel" ${S.flOpen ? "" : "hidden"}><div class="addrow">
         <label class="field"><span>Agente</span>${sel("ag", opt(ags, f.ag, "Tutti"))}</label>
         <label class="field"><span>Stato</span>${sel("stato", so(f.stato, [["", "Tutti"], ["ok", "Con OK"], ["bozza", "Da verificare"]]))}</label>
         <label class="field"><span>Rilievo da</span>${sel("rilDa", opt(ril, f.rilDa, "—"))}</label>
@@ -576,7 +577,7 @@
         <label class="field"><span>Composizione</span>${sel("comp", so(f.comp, [["", "Tutte"], ["std", "Solo standard"], ["fsd", "Con fuori standard"]]))}</label>
         <label class="field"><span>Rispetto alla stima agente</span>${sel("conf", so(f.conf, [["", "Tutte"], ["ritardo", "Posa dopo la stima"], ["ok", "Entro la stima"]]))}</label>
         <label class="field"><span>Ordina per</span>${sel("ord", so(f.ord, [["rilievo", "Settimana di rilievo"], ["posa", "Posa definitiva"], ["commessa", "N° commessa"]]))}</label>
-        <button class="btn" id="fl-reset" style="align-self:end;margin-bottom:14px">Azzera filtri</button>
+        <button class="btn" id="fl-reset" style="align-self:end;margin-bottom:6px">Azzera filtri</button>
       </div></div>
       <div id="el-res">${elencoRes()}</div>
       <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span><i class="bz-i"></i>Da verificare</span></div>`;
@@ -585,7 +586,9 @@
     const res = document.getElementById("el-res");
     const draw = () => { res.innerHTML = elencoRes(); res.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => doGoto(e, b))); };
     document.querySelectorAll("[data-fl]").forEach(i => { const ev = i.tagName === "INPUT" ? "oninput" : "onchange"; i[ev] = () => { S.fl[i.dataset.fl] = i.value; draw(); }; });
-    document.getElementById("fl-reset").onclick = () => { S.fl = { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }; render(); };
+    const reset = () => { S.fl = { q: "", ag: "", stato: "", rilDa: "", rilA: "", posaDa: "", posaA: "", comp: "", conf: "", ord: "rilievo" }; render(); };
+    document.getElementById("fl-reset").onclick = reset; const r2 = document.getElementById("fl-reset2"); if (r2) r2.onclick = reset;
+    document.getElementById("fl-toggle").onclick = () => { S.flOpen = !S.flOpen; render(); };
     draw();
   }
 
@@ -614,7 +617,7 @@
     const waiting = S.offerte.filter(o => !o.commessa && !S.piano.some(x => x.offerta_id === o.id)).sort((a, b) => a.seq - b.seq);
     const cell = (p, key, val) => {
       const man = key !== "rilievo" && (p.manuali || {})[key];
-      return `<td class="${man ? "man" : ""}"><input class="inp wkc" data-pr="${p.id}" data-f="${key}" value="${esc(val || "")}" ${man ? 'title="Modificata a mano. Svuota il campo per tornare al calcolo automatico."' : ""} placeholder="${key === "rilievo" ? "" : "auto"}"></td>`;
+      return `<td class="${{ rilievo: "f-ril", L: "f-ord", M: "f-acq", N: "f-prod", posa: "f-posa" }[key]} ${man ? "man" : ""}"><input class="inp wkc" data-pr="${p.id}" data-f="${key}" value="${esc(val || "")}" ${man ? 'title="Modificata a mano. Svuota il campo per tornare al calcolo automatico."' : ""} placeholder="${key === "rilievo" ? "" : "auto"}"></td>`;
     };
     const body = rows.map(p => {
       const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), av = (pi.warnings || []).map(E.humanWarn), op = !!S.open[p.id];
@@ -650,7 +653,7 @@
           <button class="btn pri" id="pr-add" style="align-self:end;margin-bottom:14px">Aggiungi al piano</button>
         </div><div id="pr-look">${lookupHtml()}</div>
         ${waiting.length ? `<details class="wait"><summary>Offerte ancora senza commessa (${waiting.length})</summary><div class="scroll"><table class="t"><tbody>${waiting.map(o => `<tr><td><b>${esc(o.numero)}</b></td><td>${esc(o.cliente)}</td><td class="muted small">${esc(o.agente_nome)}</td><td class="num small">${o.piano.posa || "—"}</td><td>${isSospesa(o) ? '<span class="badge warn">sospesa</span>' : ""}</td><td><button class="btn sm" data-link="${esc(o.numero)}">Collega</button></td></tr>`).join("")}</tbody></table></div></details>` : ""}</div>
-      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t rt"><thead><tr><th>Stato</th><th>Commessa</th><th>Cliente</th><th>Posa agente</th><th>Rilievo</th><th>Conferma ordine</th><th>Acquisti</th><th>Produzione</th><th>Posa definitiva</th><th>Differenza</th><th></th></tr></thead><tbody>${body}</tbody></table>`
+      <div class="panel scroll" style="padding:0">${rows.length ? `<table class="t rt"><thead><tr><th>Stato</th><th>Commessa</th><th>Cliente</th><th>Posa agente</th><th class="f-ril">Rilievo</th><th class="f-ord">Conferma ordine</th><th class="f-acq">Acquisti</th><th class="f-prod">Produzione</th><th class="f-posa">Posa definitiva</th><th>Differenza</th><th></th></tr></thead><tbody>${body}</tbody></table>`
         : `<div class="empty"><b>${S.piano.length ? "Nessuna commessa collegata negli ultimi 7 giorni" : "Nessuna commessa nel piano definitivo"}</b>${S.piano.length ? "Tutte le altre sono in «Tutte le commesse»." : "Collega la prima offerta qui sopra."}</div>`}</div>
       <p class="sub" style="margin:8px 0 0">Qui sono mostrate le commesse collegate negli ultimi 7 giorni (${rows.length} su ${S.piano.length}). Le altre le trovi in <a href="#" data-goto="elenco">Tutte le commesse</a>, con filtri e ricerca.</p>
       <div class="legend"><span><i class="man-i"></i>Data modificata a mano</span><span><i class="bz-i"></i>Da verificare</span><span>▸ apre composizione, tipologie e note. Cambiando una data, quelle successive si ricalcolano; svuota il campo per tornare all'automatico. Cambiando il rilievo si riparte da capo.</span></div>
