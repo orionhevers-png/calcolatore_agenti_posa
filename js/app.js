@@ -68,11 +68,9 @@
     return PH[p] || (S.cur < r.s ? "In programma" : "In lavorazione");
   }
   function commessaOf(input, cliente) {
-    return {
-      id: "x", nome: cliente, fori: input.fori, antePvc: input.antePvc, alzPvc: input.alzPvc, port: input.port,
-      anteAlu: input.anteAlu, alzAlu: input.alzAlu,
-      scuriPvc: input.scuriPvc || 0, scuriAlu: input.scuriAlu != null ? input.scuriAlu : (input.scuri || 0), tipi: input.tipi, posaRich: input.posaRich || undefined
-    };
+    const n = E.normInput(input);
+    return { id: "x", nome: cliente, fori: n.fori, pvc1: n.pvc1, pvc2: n.pvc2, pvc3: n.pvc3, alzPvc: n.alzPvc, port: n.port, portAlu: n.portAlu, alu1: n.alu1, alu2: n.alu2, alzAlu: n.alzAlu,
+      scuriPvc: n.scuriPvc || 0, scuriAlu: n.scuriAlu || 0, tipi: n.tipi, posaRich: n.posaRich || undefined };
   }
   function occMinus(righe, foot) {
     const m = {};
@@ -80,7 +78,7 @@
     for (const [k, arr] of Object.entries(foot || {})) for (const [s, c] of arr) { const key = k + "|" + s; if (m[key] != null) m[key] -= c; }
     return Object.entries(m).filter(([, c]) => c > 1e-9).map(([key, c]) => { const [r, s] = key.split("|"); return { r, s, c }; });
   }
-  const sumSerr = i => (+i.antePvc || 0) + (+i.alzPvc || 0) + (+i.port || 0) + (+i.anteAlu || 0) + (+i.alzAlu || 0);
+  const sumSerr = i => E.serramentiOf(E.normInput(i));
 
   /* ---------- caricamento dati ---------- */
   async function refresh(silent) {
@@ -123,10 +121,10 @@
   async function seedDemo() {
     if (Api.mode !== "demo" || !Api.empty()) return;
     const seeds = [
-      ["rossi@demo", "2026-118", "Condominio Aurora", { fori: 27, antePvc: 25, alzPvc: 1, port: 1, anteAlu: 0, alzAlu: 0, tipi: { pvc: "std", vetri: "std", avvolgibili: "std", zanzariere: "std" }, posaRich: "" }],
-      ["rossi@demo", "2026-131", "Villa Brenta", { fori: 12, antePvc: 0, alzPvc: 0, port: 0, anteAlu: 10, alzAlu: 2, scuriAlu: 6, tipi: { schuco: "fsd", anoxidal: "std", "scuri all": "std" }, posaRich: "" }],
-      ["bianchi@demo", "2026-122", "Ristrutturazione Zanon", { fori: 120, antePvc: 100, alzPvc: 8, port: 4, anteAlu: 6, alzAlu: 2, tipi: { pvc: "fsd", vetri: "fsd", "alzanti ventana": "std" }, posaRich: "" }],
-      ["bianchi@demo", "2026-140", "Casa Moretti", { fori: 18, antePvc: 14, alzPvc: 2, port: 2, anteAlu: 0, alzAlu: 0, tipi: { pvc: "std", monoblocchi: "std", "porte interne": "std" }, posaRich: "" }, 20]
+      ["rossi@demo", "2026-118", "Condominio Aurora", { fori: 27, pvc1: 10, pvc2: 10, pvc3: 5, alzPvc: 1, port: 1, tipi: { pvc: "std", vetri: "std", avvolgibili: "std", zanzariere: "std" }, posaRich: "" }],
+      ["rossi@demo", "2026-131", "Villa Brenta", { fori: 12, alu1: 4, alu2: 6, alzAlu: 2, scuriAlu: 6, tipi: { schuco: "fsd", anoxidal: "std", "scuri all": "std" }, posaRich: "" }],
+      ["bianchi@demo", "2026-122", "Ristrutturazione Zanon", { fori: 120, pvc1: 40, pvc2: 40, pvc3: 20, alzPvc: 8, port: 4, alu1: 4, alu2: 2, alzAlu: 2, tipi: { pvc: "fsd", vetri: "fsd", "alzanti ventana": "std" }, posaRich: "" }],
+      ["bianchi@demo", "2026-140", "Casa Moretti", { fori: 18, pvc1: 6, pvc2: 6, pvc3: 2, alzPvc: 2, port: 2, tipi: { pvc: "std", monoblocchi: "std", "porte interne": "std" }, posaRich: "" }, 20]
     ];
     const cur = S.me;
     for (const [em, numero, cliente, input, giorni] of seeds) {
@@ -174,7 +172,7 @@
     ${g ? (sec === "def"
       ? `<div class="indic"><b>Piano definitivo.</b> Qui assegni il rilievo e decidi le date che contano. Gli agenti non le vedono.</div>`
       : sec === "prov" ? `<div class="indic"><b>Stime degli agenti.</b> Sono solo indicative e servono per consultazione: le date che contano sono nel Piano definitivo.</div>` : "")
-      : `<div class="indic"><b>Stima indicativa.</b> La settimana mostrata serve solo per orientarsi con il cliente. Non è una data confermata: la programmazione definitiva la fa l'ufficio produzione.</div>`}
+      : `<div class="indic big"><span class="ic">⚠</span><div><b>TEMPI INDICATIVI — NON SONO UNA DATA CONFERMATA</b><br>La settimana di posa mostrata è solo una stima per orientarti con il cliente, calcolata sul carico del momento. Non promettere questa data: la programmazione definitiva la fa l'ufficio produzione.</div></div>`}
     <main class="shell">${inner}</main>`;
   }
 
@@ -235,7 +233,7 @@
       <div class="h"><div class="t"><b>Offerta ${esc(row.numero)} · ${esc(row.cliente)}</b>
         <span>Inserita il ${esc(fmtDay(row.creata_il))} · ${r.fori} fori</span></div>
         ${conf ? `<div class="p"><span class="badge ok">Confermata</span><div class="posa" style="font-size:18px">Commessa ${esc(row.commessa)}</div></div>`
-          : `<div class="p"><small>Settimana indicativa di posa</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
+          : `<div class="p"><span class="badge warn">Stima indicativa</span><small>Settimana indicativa di posa</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
         ${r.req != null ? `<small>Richiesta dal cliente: ${wl(r.req)}</small>` : ""}</div>`}</div>
       ${av.length ? `<div class="warns">${av.map(a => `<div>⚠ ${esc(a.t)}</div>`).join("")}</div>` : ""}
       ${canEdit && !conf ? `<div class="a"><div class="sp"></div><button class="btn sm" data-edit="${row.id}">Modifica</button><button class="btn sm danger" data-del="${row.id}">Elimina</button></div>` : ""}
@@ -418,11 +416,10 @@
     return { list: S.offerte.filter(o => String(o.numero).trim().toLowerCase() === v) };
   }
   // composizione e tipologie (standard / fuori standard) in forma leggibile
-  const COMP = [["antePvc", "ante PVC"], ["alzPvc", "alzanti PVC"], ["port", "portoncini"], ["anteAlu", "ante alluminio"], ["alzAlu", "alzanti alluminio"], ["scuriPvc", "scuri PVC"], ["scuriAlu", "scuri alluminio"]];
-  function chipsComp(i) {
-    const c = COMP.filter(([k]) => +i[k] > 0).map(([k, l]) => `<span class="chip"><b>${i[k]}</b> ${l}</span>`);
-    if (!c.length && +i.scuri > 0) c.push(`<span class="chip"><b>${i.scuri}</b> scuri</span>`);
-    return `<span class="chip fori"><b>${i.fori}</b> fori</span>` + c.join("");
+  const COMP = [["pvc1", "PVC 1 anta"], ["pvc2", "PVC 2 ante"], ["pvc3", "PVC 3 ante"], ["alzPvc", "alzanti PVC"], ["port", "portoncini PVC"], ["portAlu", "portoncini alluminio"], ["alu1", "alluminio 1 anta"], ["alu2", "alluminio 2 ante"], ["alzAlu", "alzanti alluminio"], ["scuriPvc", "scuri PVC"], ["scuriAlu", "scuri alluminio"]];
+  function chipsComp(inp) {
+    const i = E.normInput(inp), c = COMP.filter(([k]) => +i[k] > 0).map(([k, l]) => `<span class="chip"><b>${i[k]}</b> ${l}</span>`), ap = E.antePvcOf(i);
+    return `<span class="chip fori"><b>${i.fori}</b> fori</span>` + c.join("") + (ap ? `<span class="chip fori" title="Capacità PVC occupata">${ap} ante PVC</span>` : "");
   }
   function chipsTipi(i) {
     const sel = E.tipiOf(S.cfg).filter(t => (i.tipi || {})[t.name]);
@@ -434,16 +431,27 @@
   }
   const nFsd = i => Object.values(i.tipi || {}).filter(v => v === "fsd").length;
   // ---- modulo composizione condiviso (collegamento e finestra di modifica)
+  const SK = ["pvc1", "pvc2", "pvc3", "alzPvc", "port", "portAlu", "alu1", "alu2", "alzAlu", "scuriPvc", "scuriAlu"];
   function formOf(inp, posaRich) {
-    return { fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuriPvc: inp.scuriPvc || "", scuriAlu: inp.scuriAlu || inp.scuri || "", tipi: Object.assign({}, inp.tipi || {}), posaRich: posaRich || "" };
+    const n = E.normInput(inp), f = { fori: n.fori || "", tipi: Object.assign({}, n.tipi || {}), posaRich: posaRich || "" };
+    SK.forEach(k => (f[k] = n[k] || "")); return f;
+  }
+  // campi della composizione, raggruppati per materiale
+  function serrHtml(form) {
+    const nf = (k, l, tip) => `<label class="field"><span>${l}${tip ? " " + info(tip) : ""}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${esc(form[k])}" placeholder="0"></label>`;
+    return `<div class="fgrid"><label class="field req"><span>Numero fori ${info("Il numero totale di aperture da sostituire in questa offerta. Deve essere uguale al totale dei serramenti qui sotto.")}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${esc(form.fori)}" placeholder="0"></label></div>
+      <h4 class="grp"><i class="g-pvc"></i>PVC</h4>
+      <div class="fgrid">${nf("pvc1", "Serramenti a 1 anta", "Finestre o porte-finestre PVC con una sola anta. Occupano 1 di capacità produttiva.")}${nf("pvc2", "Serramenti a 2 ante", "Serramenti PVC con due ante. Occupano 2 di capacità produttiva ciascuno.")}${nf("pvc3", "Serramenti a 3 ante", "Serramenti PVC con tre ante. Occupano 3 di capacità produttiva ciascuno.")}${nf("alzPvc", "Alzanti PVC", "Alzanti scorrevoli in PVC.")}${nf("port", "Portoncini PVC", "Portoncini d'ingresso in PVC.")}</div>
+      <h4 class="grp"><i class="g-alu"></i>Alluminio</h4>
+      <div class="fgrid">${nf("alu1", "Serramenti a 1 anta", "Serramenti in alluminio con una sola anta.")}${nf("alu2", "Serramenti a 2 ante", "Serramenti in alluminio con due ante.")}${nf("alzAlu", "Alzanti alluminio", "Alzanti scorrevoli in alluminio.")}${nf("portAlu", "Portoncini alluminio", "Portoncini d'ingresso in alluminio.")}</div>
+      <h4 class="grp"><i class="g-scu"></i>Scuri <span class="muted small">non si contano nei fori</span></h4>
+      <div class="fgrid">${nf("scuriPvc", "Scuri PVC", "Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}${nf("scuriAlu", "Scuri alluminio", "Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}</div>`;
   }
   function compFormHtml(form) {
-    const tipi = E.tipiOf(S.cfg), weeks = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 90); w++) weeks.push(S.P.cal[w].label);
+    const weeks = []; for (let w = Math.max(1, S.cur); w <= Math.min(E.NW, S.cur + 90); w++) weeks.push(S.P.cal[w].label);
     if (form.posaRich && !weeks.includes(form.posaRich)) weeks.unshift(form.posaRich);
-    const nf = (k, l) => `<label class="field"><span>${l}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${esc(form[k])}" placeholder="0"></label>`;
-    return `<h3>Fori e serramenti</h3>
-      <div class="fgrid"><label class="field req"><span>Numero fori</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${esc(form.fori)}" placeholder="0"></label></div>
-      <div class="fgrid">${nf("antePvc", "Ante PVC")}${nf("alzPvc", "Alzanti PVC")}${nf("port", "Portoncini")}${nf("anteAlu", "Ante alluminio")}${nf("alzAlu", "Alzanti alluminio")}${nf("scuriPvc", "Scuri PVC")}${nf("scuriAlu", "Scuri alluminio")}</div>
+    const tipi = E.tipiOf(S.cfg);
+    return `<h3>Fori e serramenti</h3>${serrHtml(form)}
       <div class="sumbox" data-sum></div>
       <h3>Tipologie ordinate</h3>
       ${E.CATS.map((cat, ci) => `<div class="cat"><h4>${cat}</h4>${tipi.filter(t => t.cat === ci).map(t => `<div class="trow"><div class="n">${esc(t.name)}</div>
@@ -459,8 +467,15 @@
     syncSeg();
   }
   function inputFromForm(base, form) {
-    const n = k => Math.max(0, Math.floor(Number(form[k]) || 0));
-    return { ...base, fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuriPvc: n("scuriPvc"), scuriAlu: n("scuriAlu"), tipi: { ...form.tipi } };
+    const n = k => Math.max(0, Math.floor(Number(form[k]) || 0)), o = E.normInput(base);
+    const r = { ...o, fori: n("fori"), tipi: { ...form.tipi } };
+    SK.forEach(k => (r[k] = n(k))); return r;
+  }
+  // capacità che la composizione occupa nei reparti
+  function capTxt(i) {
+    const ap = E.antePvcOf(i), ore = E.oreAluOf(i, S.cfg), p = [];
+    if (ap) p.push(`ante PVC in produzione <b class="num">${ap}</b>`); if (ore) p.push(`alluminio <b class="num">${num(ore)}</b> ore`);
+    return p.length ? ` · ${p.join(" · ")}` : "";
   }
   function checkForm(i) {
     const tot = sumSerr(i), errs = [];
@@ -472,7 +487,7 @@
   function sumFill(root, v) {
     const diff = v.tot - v.i.fori, el = root.querySelector("[data-sum]");
     el.className = "sumbox " + (v.i.fori > 0 && diff === 0 ? "ok" : v.i.fori > 0 && v.tot > 0 ? "bad" : "");
-    el.innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${v.i.fori}</b> ${v.i.fori > 0 && diff === 0 ? "✓ coincidono" : v.i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}`;
+    el.innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${v.i.fori}</b> ${v.i.fori > 0 && diff === 0 ? "✓ coincidono" : v.i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}${capTxt(v.i)}`;
   }
   function lookupHtml() {
     const v = S.prForm.off.trim();
@@ -797,10 +812,10 @@
         <p class="sub">I nuovi valori valgono dalla settimana scelta in poi. Le offerte già confermate non vengono ricalcolate: se la nuova capacità è inferiore al carico già assegnato, la settimana compare tra i sovraccarichi.</p>
         <div class="setgrid"><label class="field"><span>Valide dalla settimana</span><input class="inp" id="validafrom" value="${curLbl}" placeholder="2026-W45"><span class="u">formato 2026-W45</span></label>
         ${f("tecnici", "Tecnici rilievo", "persone")}${f("foriTecnico", "Fori per tecnico", "fori / settimana", 0.5)}
-        ${f("capPvc", "Ante PVC", "pezzi / settimana")}${f("capAlz", "Alzanti PVC", "pezzi / settimana")}${f("capPor", "Portoncini", "pezzi / settimana")}${f("capAlu", "Alluminio", "ore / settimana")}${f("capScu", "Reparto scuri (PVC e alluminio)", "ore / settimana", 1, "Ore di lavoro a settimana del reparto scuri, in comune tra scuri PVC e alluminio.")}</div></div>
+        ${f("capPvc", "Ante PVC", "ante / settimana", 1, "Capacità del reparto PVC in ante: un serramento a 1 anta ne occupa 1, a 2 ante ne occupa 2, a 3 ante ne occupa 3.")}${f("capAlz", "Alzanti PVC", "pezzi / settimana")}${f("capPor", "Portoncini", "pezzi / settimana")}${f("capAlu", "Alluminio", "ore / settimana")}${f("capScu", "Reparto scuri (PVC e alluminio)", "ore / settimana", 1, "Ore di lavoro a settimana del reparto scuri, in comune tra scuri PVC e alluminio.")}</div></div>
       <div class="panel"><h3>Tempi e parametri</h3><p class="sub">Si applicano alle offerte nuove o modificate da ora in avanti.</p>
         <div class="setgrid">${f("tRil", "Rilievo → conferma ordine", "settimane", 1, "Tempo che passa tra il rilievo e la conferma d'ordine del cliente.")}${f("tCo", "Conferma → ordine materiali", "settimane", 1, "Tempo tra la conferma e l'invio dell'ordine ai fornitori.")}${f("buffer", "Cuscinetto prima della posa", "settimane", 1, "Settimane di margine tra la fine della produzione e la posa.")}${f("giorniSospesa", "Offerta sospesa dopo", "giorni", 1, "Se un'offerta non riceve il numero di commessa entro questi giorni dall'inserimento, passa tra le offerte sospese dell'agente.")}
-        ${f("hAnteAlu", "Ore per anta alluminio", "ore / pezzo", 0.1)}${f("hAlzAlu", "Ore per alzante alluminio", "ore / pezzo", 0.1)}${f("hScuriPvc", "Ore per scuro PVC", "ore / pezzo", 0.1)}${f("hScuriAlu", "Ore per scuro alluminio", "ore / pezzo", 0.1)}</div>
+        ${f("hAnteAlu", "Ore per anta alluminio", "ore / anta", 0.1, "Un serramento in alluminio a 2 ante conta 2 ante.")}${f("hAlzAlu", "Ore per alzante alluminio", "ore / pezzo", 0.1)}${f("hPortAlu", "Ore per portoncino alluminio", "ore / pezzo", 0.1, "Ore di lavoro in reparto alluminio per ogni portoncino in alluminio.")}${f("hScuriPvc", "Ore per scuro PVC", "ore / pezzo", 0.1)}${f("hScuriAlu", "Ore per scuro alluminio", "ore / pezzo", 0.1)}</div>
         <h3 style="margin-top:18px">Coda iniziale (settimane già occupate) ${info("Settimane di lavoro già in coda in ogni reparto prima delle offerte inserite nel sistema.")}</h3>
         <div class="setgrid">${fc("ril", "Rilievo", "settimane")}${fc("pvc", "Ante PVC", "settimane")}${fc("alz", "Alzanti PVC", "settimane")}${fc("por", "Portoncini", "settimane")}${fc("alu", "Alluminio", "settimane")}${fc("scu", "Reparto scuri", "settimane")}</div></div>
       <div class="panel"><h3>Chiusure</h3><p class="sub">Percentuale di capacità disponibile: 0 = chiuso, 50 = mezza settimana.</p>
@@ -855,16 +870,11 @@
   /* ---------- FORM OFFERTA (pannello laterale) ---------- */
   function openForm(row, opts) {
     const editing = !!row, repro = !!(opts && opts.repro), inp = row ? row.input : {};
-    const form = {
-      numero: row ? row.numero : "", cliente: row ? row.cliente : "",
-      fori: inp.fori || "", antePvc: inp.antePvc || "", alzPvc: inp.alzPvc || "", port: inp.port || "", anteAlu: inp.anteAlu || "", alzAlu: inp.alzAlu || "", scuriPvc: inp.scuriPvc || "", scuriAlu: inp.scuriAlu || inp.scuri || "",
-      tipi: Object.assign({}, inp.tipi || {}), posaRich: repro ? "" : (inp.posaRich || "")
-    };
+    const form = { numero: row ? row.numero : "", cliente: row ? row.cliente : "", ...formOf(inp, repro ? "" : inp.posaRich) };
     S.drawer = { row, form, tried: false };
     const tipi = E.tipiOf(S.cfg);
     const weeks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 70); w++) weeks.push(S.P.cal[w].label);
     if (form.posaRich && !weeks.includes(form.posaRich)) weeks.unshift(form.posaRich);
-    const nf = (k, l, ph, tip) => `<label class="field"><span>${l}${tip ? " " + info(tip) : ""}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="${k}" value="${form[k]}" placeholder="${ph || "0"}"></label>`;
     const html = `<div class="scrim" data-x></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Offerta">
       <header><div class="top2"><h2>${repro ? "Riprogramma offerta" : editing ? "Modifica offerta" : "Nuova offerta"}</h2><button class="btn sm" data-x type="button">Chiudi</button></div>
         <div class="f2"><label class="field req"><span>N° offerta ${info("Il numero dell'offerta come lo trovi sul preventivo.")}</span><input class="inp" id="f-num" value="${esc(form.numero)}" autocomplete="off"></label>
@@ -872,9 +882,8 @@
         <div class="stamp">${repro ? "Nuova data di inserimento:" : editing ? "Inserita il" : "Verrà registrata il"} <b>${esc(fmtDay(row && !repro ? row.creata_il : new Date().toISOString()))}</b></div></header>
       <div class="body">
         ${repro ? `<div class="sumbox" style="display:block">L'offerta viene ricalcolata come se la inserissi <b>oggi</b>. I dati restano uguali: devi solo scegliere la nuova settimana di posa (in fondo).</div>` : ""}
-        <h3>Fori e serramenti ${info("Il totale dei serramenti (ante, alzanti e portoncini, PVC e alluminio) deve essere esattamente uguale ai fori. Gli scuri non si contano.")}</h3>
-        <div class="fgrid"><label class="field req"><span>Numero fori ${info("Il numero totale di aperture da sostituire in questa offerta. Deve essere uguale al totale dei serramenti qui sotto.")}</span><input class="inp" type="number" inputmode="numeric" min="0" step="1" data-n="fori" value="${form.fori}" placeholder="0"></label></div>
-        <div class="fgrid">${nf("antePvc", "Ante PVC", "", "Quante ante in PVC ci sono nell'offerta.")}${nf("alzPvc", "Alzanti PVC", "", "Quanti alzanti scorrevoli in PVC.")}${nf("port", "Portoncini", "", "Quanti portoncini d'ingresso.")}${nf("anteAlu", "Ante alluminio", "", "Quante ante in alluminio.")}${nf("alzAlu", "Alzanti alluminio", "", "Quanti alzanti scorrevoli in alluminio.")}${nf("scuriPvc", "Scuri PVC", "", "Quanti scuri in PVC. Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}${nf("scuriAlu", "Scuri alluminio", "", "Quanti scuri in alluminio. Non si contano nel totale dei serramenti: hanno un reparto dedicato.")}</div>
+        <h3>Fori e serramenti ${info("Il totale dei serramenti (PVC e alluminio, alzanti e portoncini inclusi) deve essere esattamente uguale ai fori. Un serramento a 3 ante PVC conta come 1 foro ma occupa 3 di capacità produttiva. Gli scuri non si contano.")}</h3>
+        ${serrHtml(form)}
         <div class="sumbox" id="sum"></div>
         <h3>Tipologie ordinate ${info("Standard: misure e finiture di catalogo. Fuori standard: misure, forme o lavorazioni speciali, con tempi di consegna dei materiali più lunghi. Se una tipologia non è nell'offerta lascia «—».")}</h3><p class="sub">Per ogni tipologia presente indica se è <b>standard</b> o <b>fuori standard</b>. Lascia «—» se non c'è. Serve almeno una tipologia.</p>
         ${E.CATS.map((cat, ci) => `<div class="cat"><h4>${cat}</h4>${tipi.filter(t => t.cat === ci).map(t => `<div class="trow"><div class="n">${esc(t.name)}</div>
@@ -897,10 +906,7 @@
     q("#f-cli").oninput = e => { form.cliente = e.target.value; update(); };
     q("#f-req").onchange = e => { form.posaRich = e.target.value; update(); };
 
-    function inputOf() {
-      const n = k => Math.max(0, Math.floor(Number(form[k]) || 0));
-      return { fori: n("fori"), antePvc: n("antePvc"), alzPvc: n("alzPvc"), port: n("port"), anteAlu: n("anteAlu"), alzAlu: n("alzAlu"), scuriPvc: n("scuriPvc"), scuriAlu: n("scuriAlu"), tipi: { ...form.tipi }, posaRich: form.posaRich || "" };
-    }
+    function inputOf() { return { ...inputFromForm({}, form), posaRich: form.posaRich || "" }; }
     function validate() {
       const i = inputOf(), tot = sumSerr(i), errs = [], ok = [];
       const dati = form.numero.trim() && form.cliente.trim();
@@ -931,7 +937,7 @@
       const v = validate(), i = v.i;
       const sum = q("#sum"); const diff = v.tot - i.fori;
       sum.className = "sumbox " + (i.fori > 0 && diff === 0 ? "ok" : (S.drawer.tried || (i.fori > 0 && v.tot > 0)) && diff !== 0 ? "bad" : "");
-      sum.innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${i.fori}</b> ${i.fori > 0 && diff === 0 ? "✓ coincidono" : i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}`;
+      sum.innerHTML = `Serramenti totali <b class="num">${v.tot}</b> · Fori <b class="num">${i.fori}</b> ${i.fori > 0 && diff === 0 ? "✓ coincidono" : i.fori > 0 || v.tot > 0 ? `— ${diff > 0 ? "sovrabbondano " + diff : "mancano " + (-diff)}` : ""}${capTxt(i)}`;
       q("#checks").innerHTML = v.errs.map(t => `<div><span class="x">✗</span>${esc(t)}</div>`).join("");
       const res = q("#res");
       if (v.errs.length) { res.innerHTML = ""; lastPlan = null; return; }
@@ -943,7 +949,7 @@
       q("#checks").innerHTML = bl.msg ? `<div><span class="x">✗</span>${esc(bl.msg)}</div>` : "";
       q("#f-save").disabled = !!bl.msg;
       res.innerHTML = `<div class="res"><div><small class="muted">Settimana indicativa di posa</small><div class="posa">${r.ok ? pl.cal[r.posa].label : "non calcolabile"}</div></div>
-        <div class="small" style="flex:1;min-width:180px">Stima non vincolante: la data definitiva la conferma l'ufficio produzione.</div>
+        <div class="small" style="flex:1;min-width:180px"><b>⚠ Tempo indicativo, non confermato.</b> Non è una promessa al cliente: la data definitiva la conferma l'ufficio produzione.</div>
         ${av.length ? `<div class="warns" style="flex-basis:100%">${av.map(a => `<div>⚠ ${esc(a)}</div>`).join("")}</div>` : ""}</div>`;
     }
     syncSeg(); update();

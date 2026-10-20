@@ -51,3 +51,10 @@ Ore per pezzo alluminio (segnaposto 1), date di chiusura, code iniziali.
 - **Tutte le commesse**: elenco completo con rilievo, conferma ordine, acquisti, produzione e posa, con filtri combinabili (agente, stato, intervalli di rilievo e posa, composizione, confronto con la stima agente) e ricerca.
 - **Gantt** definitivo in ordine di posa (cambiabile) con ricerca per commessa o cliente.
 - **Ricalcola tutto** è rosso e chiede conferma.
+
+## Composizione serramenti (aggiornamento)
+
+- PVC: serramenti a **1, 2 o 3 ante**. Contano 1 foro, ma occupano 1, 2 o 3 di capacità del reparto PVC (capacità in *ante* a settimana).
+- Alluminio: serramenti a **1 o 2 ante** (ore = ante × ore per anta). Portoncini PVC e **portoncini alluminio** distinti; questi ultimi usano le ore «per portoncino alluminio» (Impostazioni, default 4: da verificare).
+- Le offerte già inserite restano valide: le vecchie «ante PVC / ante alluminio» sono lette come serramenti a 1 anta. Nessun aggiornamento del database.
+- Per gli agenti il banner «Tempi indicativi» è più evidente.

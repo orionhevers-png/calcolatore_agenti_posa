@@ -13,7 +13,7 @@ const TIPI_BASE = [
 
 const LINES = [
   { key: "ril", name: "Rilievo", unit: "fori" },
-  { key: "pvc", name: "Ante PVC", unit: "pz" },
+  { key: "pvc", name: "Ante PVC", unit: "ante" },
   { key: "alz", name: "Alzanti PVC", unit: "pz" },
   { key: "por", name: "Portoncini", unit: "pz" },
   { key: "alu", name: "Alluminio", unit: "ore" },
@@ -22,7 +22,7 @@ const LINES = [
 
 function defaultCfg() {
   return {
-    tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200, capScu: 64,
+    tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200, capScu: 64, hPortAlu: 4,
     tRil: 2, tCo: 2, buffer: 2, giorniSospesa: 15, hAnteAlu: 1, hAlzAlu: 1, hScuriPvc: 3, hScuriAlu: 4.5,
     coda: { ril: 0, pvc: 0, alz: 0, por: 0, alu: 0, scu: 0 },
     closures: [
@@ -48,6 +48,22 @@ function tipiOf(cfg) {
     return { name: t.name, cat: t.cat, std: ov.std ?? t.std, fsd: ov.fsd ?? t.fsd, early: ov.early ?? t.early };
   });
 }
+
+/* Composizione: serramenti PVC a 1/2/3 ante (3 ante = 3 pezzi di capacità), alluminio a 1/2 ante,
+   portoncini PVC e alluminio. Le offerte vecchie (antePvc / anteAlu = un'anta per serramento) restano valide. */
+function normInput(i) {
+  const o = Object.assign({}, i || {}), has = ks => ks.some(k => +o[k] > 0);
+  if (!has(["pvc1", "pvc2", "pvc3"]) && +o.antePvc > 0) o.pvc1 = +o.antePvc;
+  if (!has(["alu1", "alu2"]) && +o.anteAlu > 0) o.alu1 = +o.anteAlu;
+  delete o.antePvc; delete o.anteAlu;
+  if (o.scuriAlu == null && +o.scuri > 0) o.scuriAlu = +o.scuri;
+  return o;
+}
+const nz = v => +v || 0;
+const antePvcOf = i => nz(i.pvc1) + 2 * nz(i.pvc2) + 3 * nz(i.pvc3);
+const anteAluOf = i => nz(i.alu1) + 2 * nz(i.alu2);
+const serramentiOf = i => nz(i.pvc1) + nz(i.pvc2) + nz(i.pvc3) + nz(i.alzPvc) + nz(i.port) + nz(i.portAlu) + nz(i.alu1) + nz(i.alu2) + nz(i.alzAlu);
+const oreAluOf = (i, cfg) => anteAluOf(i) * cfg.hAnteAlu + nz(i.alzAlu) * cfg.hAlzAlu + nz(i.portAlu) * (cfg.hPortAlu != null ? cfg.hPortAlu : 4);
 
 function mondayOfLabel(lbl) {
   const m = /^(\d{4})-W(\d{1,2})$/.exec(String(lbl || "").trim());
@@ -143,10 +159,11 @@ function plan(commesse, cfg, todayMs, opts) {
     }
     const s = rilIdx != null ? Math.max(1, rilIdx - early) : (avvioIdx != null ? Math.max(1, avvioIdx) : cur);
     const fori = +c.fori || 0;
+    const cn = normInput(c);
     const need = {
-      pvc: +c.antePvc || 0, alz: +c.alzPvc || 0, por: +c.port || 0,
-      alu: (+c.anteAlu || 0) * cfg.hAnteAlu + (+c.alzAlu || 0) * cfg.hAlzAlu + (+c.oreExtra || 0),
-      scu: (+c.scuriPvc || 0) * cfg.hScuriPvc + (+c.scuriAlu || 0) * cfg.hScuriAlu
+      pvc: antePvcOf(cn), alz: +cn.alzPvc || 0, por: +cn.port || 0,
+      alu: oreAluOf(cn, cfg) + (+cn.oreExtra || 0),
+      scu: (+cn.scuriPvc || 0) * cfg.hScuriPvc + (+cn.scuriAlu || 0) * cfg.hScuriAlu
     };
     if (fori === 0) r.warnings.push("Inserire n° fori.");
     if (nSel + need.pvc + need.alz + need.por + need.alu === 0) r.warnings.push("Selezionare tipologie / quantità.");
@@ -233,6 +250,6 @@ function phaseAt(r, w, cfg) {
   if (r.early > 0 && w >= r.s && w < r.rilFirst) return "E";
   return "";
 }
-const Engine = { humanWarn, plan, freeze, thaw, defaultCfg, mergeCfg, tipiOf, phaseAt, buildCalendar, labelOfMs, mondayOfLabel, mondayOfDate, labelOfIdx, baseOf, TIPI_BASE, LINES, CATS, NW, DAY };
+const Engine = { normInput, antePvcOf, anteAluOf, serramentiOf, oreAluOf, humanWarn, plan, freeze, thaw, defaultCfg, mergeCfg, tipiOf, phaseAt, buildCalendar, labelOfMs, mondayOfLabel, mondayOfDate, labelOfIdx, baseOf, TIPI_BASE, LINES, CATS, NW, DAY };
 if (typeof module !== "undefined") module.exports = Engine;
 if (typeof window !== "undefined") window.Engine = Engine;

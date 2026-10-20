@@ -307,3 +307,13 @@ th.f-ril{border-color:var(--ph-ril)!important} th.f-ord{border-color:var(--ph-or
 .filbar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .filbar .inp{flex:1;min-width:220px;max-width:380px}
 .filt[hidden]{display:none}
+
+/* composizione per materiale */
+.grp{display:flex;align-items:center;gap:8px;margin:14px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.grp i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.g-pvc{background:var(--ph-ril)} .g-alu{background:var(--ph-stock)} .g-scu{background:var(--ph-att)}
+/* banner agente: tempi indicativi */
+.indic.big{display:flex;gap:14px;align-items:center;justify-content:center;text-align:left;padding:14px 20px;font-size:14.5px;line-height:1.45;background:var(--warn-soft);color:var(--ink);border-bottom:3px solid var(--warn)}
+.indic.big b{color:var(--warn);font-size:15.5px;letter-spacing:.02em}
+.indic.big .ic{font-size:28px;color:var(--warn);line-height:1}
+.oc .p .badge.warn{margin-bottom:4px}
