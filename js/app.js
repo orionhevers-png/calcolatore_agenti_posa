@@ -79,11 +79,23 @@
     }
     return out;
   }
+  // fasi della commessa: cosa si è spostato (rilievo, conferma ordine, acquisti, produzione, posa)
+  const FASI = [["rilFirst", "Rilievo"], ["L", "Conferma ordine"], ["M", "Acquisti"], ["pFirst", "Produzione"], ["posa", "Posa"]];
+  const MANK = { L: "Conferma ordine", M: "Acquisti", N: "Produzione", posa: "Posa" };
+  function fasiCambiate(a, b, man) {
+    const mk = { rilFirst: "rilievo", L: "L", M: "M", pFirst: "N", posa: "posa" };
+    return FASI.filter(([k]) => a[k] && b[k] && a[k] !== b[k]).map(([k, n]) => `${n.toLowerCase()} da ${a[k]} a ${b[k]}${man && man[mk[k]] ? " (data modificata a mano)" : ""}`);
+  }
   function motivoReale(old, np) {
     const out = [];
     if (old) {
-      if (old.rilievo !== np.rilievo) out.push(`rilievo spostato da ${old.rilievo} a ${np.rilievo}`);
-      if (JSON.stringify(old.manuali || {}) !== JSON.stringify(np.manuali || {})) out.push("date modificate a mano dal gestore");
+      const fasi = fasiCambiate(old.piano, np.piano, np.manuali || {});
+      if (fasi.length) out.push((np.piano.posa > old.piano.posa ? "ritardo su: " : "anticipo su: ") + fasi.join("; "));
+      if (old.rilievo !== np.rilievo) out.push(`rilievo riassegnato dal gestore (da ${old.rilievo} a ${np.rilievo})`);
+      const mo = old.manuali || {}, mn = np.manuali || {};
+      const chg = Object.keys(MANK).filter(k => (mo[k] || "") !== (mn[k] || "")), set = chg.filter(k => mn[k]), cl = chg.filter(k => !mn[k]);
+      if (set.length) out.push("modificata a mano: " + set.map(k => MANK[k].toLowerCase()).join(", "));
+      if (cl.length) out.push(old.rilievo !== np.rilievo ? "date manuali azzerate dal cambio di rilievo" : "tornata al calcolo automatico: " + cl.map(k => MANK[k].toLowerCase()).join(", "));
       if (JSON.stringify(old.input) !== JSON.stringify(np.input)) out.push("composizione dell'ordine modificata");
     }
     out.push(...motivoPlan(np.piano));
@@ -114,7 +126,7 @@
         const fz = E.freeze(pl.res[0], pl.C);
         occ = addRows(occ, fz.foot);
         if (old.mov) fz.mov = old.mov;
-        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: fz.posa < old.posa ? "Si è liberato spazio nel piano di produzione (una commessa si è spostata o è stata tolta)" : capFirst(motivoPlan(fz).join(" · ") || "le commesse confermate hanno la precedenza sugli slot") }; moved++; }
+        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: capFirst([fasiCambiate(old, fz).length ? (fz.posa < old.posa ? "anticipo su: " : "ritardo su: ") + fasiCambiate(old, fz).join("; ") : "", fz.posa < old.posa ? "si è liberato spazio nel piano di produzione (una commessa si è spostata o è stata tolta)" : (motivoPlan(fz).join(" · ") || "le commesse confermate hanno la precedenza sugli slot")].filter(Boolean).join(" · ")) }; moved++; }
         if (JSON.stringify(fz) !== JSON.stringify(old)) items.push({ id: o.id, piano: fz });
       }
       if (items.length || S.offerte.some(o => o.commessa)) { await Api.ricalcolaStime(items); await refresh(true); }
@@ -298,13 +310,13 @@
     const out = [];
     if (row.commessa) {
       const d = row.definitiva;
-      if (d && d.approvata && d.mov) out.push({ t: `La posa definitiva è stata spostata da ${d.mov.da} a ${d.mov.a} (il ${fmtDay(d.mov.il)}). Causa: ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
+      if (d && d.approvata && d.mov) out.push({ t: `La posa definitiva è stata spostata da ${d.mov.da} a ${d.mov.a} (il ${fmtDay(d.mov.il)}). Dettaglio: ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
       return out;
     }
     if (!row.r.ok) out.push({ t: E.humanWarn("orizzonte"), bad: true });
     for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
     const m = row.piano && row.piano.mov;
-    if (m) out.push({ t: `La stima di posa è cambiata da ${m.da} a ${m.a} (il ${fmtDay(m.il)}). Causa: ${m.motivo}.`, bad: m.a > m.da });
+    if (m) out.push({ t: `La stima di posa è cambiata da ${m.da} a ${m.a} (il ${fmtDay(m.il)}). Dettaglio: ${m.motivo}.`, bad: m.a > m.da });
     return out;
   }
   function offertaCard(row, canEdit) {
