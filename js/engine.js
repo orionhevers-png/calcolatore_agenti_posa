@@ -221,7 +221,8 @@ function plan(commesse, cfg, todayMs, opts) {
     r.stock = r.ok ? posa - pLast - cfg.buffer : 0;
     res.push(r);
   }
-  return { C, cal, cur, res, cap, load, blk, base, cfg };
+  const start = {}; for (const L of LINES) start[L.key] = L.key === "ril" ? Math.max(partIdx("ril"), cur + 1 + (+cfg.coda.ril || 0)) : startOf(L.key);
+  return { C, cal, cur, res, cap, load, blk, start, base, cfg };
 }
 
 // ---- congelamento: l'offerta confermata viene salvata con settimane in formato etichetta (2026-W45),

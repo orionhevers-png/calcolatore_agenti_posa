@@ -432,8 +432,10 @@
       const cal = P.cal[w];
       return `<div class="wk ${w === S.cur ? "cur" : ""}">${cal.label}${w === S.cur ? " ·oggi" : ""}</div>` + L.map(l => {
         const cp = P.cap[l.key][w], ld = P.load[l.key][w];
-        if (cp <= 0 || (P.blk && P.blk[l.key][w])) return `<div class="cl">chiuso</div>`;
-        const fr = Math.max(0, (cp - ld) / cp), used = 1 - fr, c = fr >= .6 ? "g" : fr >= .25 ? "m" : "b";
+        if (cp <= 0) return `<div class="cl">chiuso</div>`;
+        // settimane riservate (recupero ritardo) o precedenti al primo slot da riempire: agli agenti risultano occupate al 100%
+        const pieno = (P.blk && P.blk[l.key][w]) || (P.start && w < P.start[l.key]);
+        const fr = pieno ? 0 : Math.max(0, (cp - ld) / cp), used = 1 - fr, c = fr >= .6 ? "g" : fr >= .25 ? "m" : "b";
         return `<div><span class="free ${c}">${fr <= 0.001 ? "Pieno" : Math.round(fr * 100) + "% libero"}</span><div class="meter"><i class="${used >= .95 ? "full" : used >= .75 ? "hi" : ""}" style="width:${Math.min(100, used * 100).toFixed(0)}%"></i></div></div>`;
       }).join("");
     }).join("");
