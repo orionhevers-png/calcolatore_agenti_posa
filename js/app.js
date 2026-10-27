@@ -48,8 +48,81 @@
     S.rows = S.offerte.map(o => ({ ...o, r: E.thaw(o.piano, S.C) })).sort((a, b) => a.seq - b.seq);
     S.sosp = Math.max(1, Number(S.cfg.giorniSospesa) || 15);
     S.realOcc = realOccOf(S.piano);
+    S.occO = S.me && S.me.ruolo === "gestore" ? subRows(S.occ.righe, S.realOcc) : S.occ.righe;   // solo stime provvisorie (arancioni)
+    S.PO = S.me && S.me.ruolo === "gestore" ? E.plan([], S.cfg, S.today, { occ: S.occO, versions: S.vlist }) : S.P;
     S.PR = E.plan([], S.cfg, S.today, { occ: S.realOcc, versions: S.vlist });   // carico del piano reale (separato dalle offerte)
   }
+  /* ---------- priorità alle commesse confermate ---------- */
+  function addRows(occ, foot) {
+    const m = {};
+    for (const x of occ) m[x.r + "|" + x.s] = (m[x.r + "|" + x.s] || 0) + Number(x.c);
+    for (const [k, arr] of Object.entries(foot || {})) for (const [s, c] of arr) { const key = k + "|" + s; m[key] = (m[key] || 0) + Number(c); }
+    return Object.entries(m).map(([key, c]) => { const [r, s] = key.split("|"); return { r, s, c }; });
+  }
+  function subRows(a, b) {
+    const m = {};
+    for (const x of a) m[x.r + "|" + x.s] = (m[x.r + "|" + x.s] || 0) + Number(x.c);
+    for (const x of b) m[x.r + "|" + x.s] = (m[x.r + "|" + x.s] || 0) - Number(x.c);
+    return Object.entries(m).filter(([, c]) => c > 1e-9).map(([key, c]) => { const [r, s] = key.split("|"); return { r, s, c }; });
+  }
+  const capFirst = t => t.charAt(0).toUpperCase() + t.slice(1);
+  // perché un piano parte più tardi: tecnici, reparto pieno, settimane riservate al recupero ritardo
+  function motivoPlan(pi) {
+    const out = [], w = pi.warnings || [];
+    if (w.some(x => /Coda rilievo/.test(x))) out.push("i tecnici del rilievo sono già impegnati");
+    if (w.some(x => /Produzione in coda/.test(x))) {
+      let lim = null, first = "";
+      for (const [k, arr] of Object.entries(pi.foot || {})) { if (k === "ril" || !arr.length) continue; if (arr[0][0] > first) { first = arr[0][0]; lim = k; } }
+      const nm = lim ? (E.LINES.find(l => l.key === lim) || {}).name : "", a = S.C.idxOf(pi.N), b = S.C.idxOf(first);
+      let rec = false; if (lim && a != null && b != null && S.P.blk) for (let x = Math.max(1, a); x < b; x++) if (S.P.blk[lim][x]) rec = true;
+      out.push(`il reparto ${nm} è già occupato (la produzione parte in ${first})${rec ? " e alcune settimane sono riservate al recupero del ritardo di produzione" : ""}`);
+    }
+    return out;
+  }
+  function motivoReale(old, np) {
+    const out = [];
+    if (old) {
+      if (old.rilievo !== np.rilievo) out.push(`rilievo spostato da ${old.rilievo} a ${np.rilievo}`);
+      if (JSON.stringify(old.manuali || {}) !== JSON.stringify(np.manuali || {})) out.push("date modificate a mano dal gestore");
+      if (JSON.stringify(old.input) !== JSON.stringify(np.input)) out.push("composizione dell'ordine modificata");
+    }
+    out.push(...motivoPlan(np.piano));
+    return capFirst(out.length ? out.join(" · ") : "ricalcolo del piano di produzione");
+  }
+  // data definitiva mostrata all'agente (solo dopo l'OK del gestore) e ultimo spostamento con il motivo
+  function defOf(np, old) {
+    const of = S.offerte.find(o => o.id === np.offerta_id), prev = (of && of.definitiva) || {}, posa = np.piano.posa || null;
+    const d = { approvata: !!np.approvata, pub: np.approvata ? posa : (prev.pub || null), mov: prev.mov || null };
+    if (np.approvata && prev.pub && posa && prev.pub !== posa) d.mov = { da: prev.pub, a: posa, il: new Date().toISOString(), motivo: motivoReale(old, np) };
+    return d;
+  }
+  async function salvaPR(np, old) {
+    old = old || (np.id ? S.piano.find(x => x.id === np.id) : null);
+    await Api.pianoSalva(np);
+    if (np.offerta_id) await Api.impostaDefinitiva(np.offerta_id, defOf(np, old));
+  }
+  // le stime provvisorie (arancioni) si ricalcolano attorno alle commesse confermate (blu), in ordine di inserimento
+  async function ricalcolaStime(opts) {
+    if (!S.me || S.me.ruolo !== "gestore") return 0;
+    try {
+      let occ = realOccOf(S.piano), items = [], moved = 0;
+      for (const o of S.rows.slice().sort((a, b) => a.seq - b.seq)) {
+        if (o.commessa) continue;
+        const old = o.piano;
+        if (o.r.ok && o.r.posa < S.cur) { occ = addRows(occ, old.foot); continue; }       // già concluse: restano come sono
+        const pl = E.plan([commessaOf(o.input, o.cliente)], S.cfg, new Date(o.creata_il).getTime(), { occ, versions: S.vlist });
+        const fz = E.freeze(pl.res[0], pl.C);
+        occ = addRows(occ, fz.foot);
+        if (old.mov) fz.mov = old.mov;
+        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: fz.posa < old.posa ? "Si è liberato spazio nel piano di produzione (una commessa si è spostata o è stata tolta)" : capFirst(motivoPlan(fz).join(" · ") || "le commesse confermate hanno la precedenza sugli slot") }; moved++; }
+        if (JSON.stringify(fz) !== JSON.stringify(old)) items.push({ id: o.id, piano: fz });
+      }
+      if (items.length || S.offerte.some(o => o.commessa)) { await Api.ricalcolaStime(items); await refresh(true); }
+      if (opts && opts.toast) toast(moved ? `Stime ricalcolate: ${moved} ${moved === 1 ? "offerta spostata" : "offerte spostate"}.` : "Stime ricalcolate: nessuno spostamento.");
+      return moved;
+    } catch (e) { toast(e.message, true); return 0; }
+  }
+
   function realOccOf(list) {
     const m = {};
     for (const p of list) for (const [k, arr] of Object.entries((p.piano && p.piano.foot) || {})) for (const [w, c] of arr) { const key = k + "|" + w; m[key] = (m[key] || 0) + Number(c); }
@@ -148,7 +221,7 @@
   /* ---------- struttura comune ---------- */
   const TABS_A = [["cruscotto", "Cruscotto"], ["calendario", "Calendario slot liberi"]];
   // gestore: tre sezioni. DEFINITIVO (protagonista), STIME AGENTI (consultazione), IMPOSTAZIONI.
-  const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["elenco", "Tutte le commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"]];
+  const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["elenco", "Tutte le commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"], ["cal_g", "Calendario slot"]];
   const TABS_PROV = [["p_riep", "Riepilogo stime"], ["offerte", "Offerte degli agenti"], ["gantt", "Gantt stime"], ["carico", "Carico stime"]];
   const TABS_SET = [["impostazioni", "Impostazioni"], ["utenti", "Utenti"]];
   const SECS = [["def", "Piano definitivo", TABS_DEF], ["prov", "Stime agenti", TABS_PROV], ["set", "Impostazioni", TABS_SET]];
@@ -180,7 +253,7 @@
     if (!S.me) return renderLogin();
     const g = S.me.ruolo === "gestore";
     const views = g
-      ? { panoramica: vDefPanoramica, reale: vReale, elenco: vElenco, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
+      ? { panoramica: vDefPanoramica, reale: vReale, elenco: vElenco, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), cal_g: vCalSlot, p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
       : { cruscotto: vCruscotto, gantt: vGantt, calendario: vCalendario };
     const keepScroll = window.scrollY;
     if (g && !views[S.tab]) S.tab = "panoramica";
@@ -208,6 +281,7 @@
     if (S.tab === "impostazioni" && S.me.ruolo === "gestore") bindSettings();
     if (S.tab === "reale" && S.me.ruolo === "gestore") bindReale();
     if (S.tab === "elenco" && S.me.ruolo === "gestore") bindElenco();
+    const rs = document.getElementById("restime"); if (rs) rs.onclick = () => busy(async () => { await ricalcolaStime({ toast: true }); render(); });
     if (S.tab === "gantt_r" && S.me.ruolo === "gestore") bindGanttR();
     if (S.tab === "utenti") bindUtenti();
   }
@@ -222,9 +296,15 @@
   /* ---------- blocchi comuni ---------- */
   function avvisiOf(row) {
     const out = [];
-    if (row.commessa) return out;
+    if (row.commessa) {
+      const d = row.definitiva;
+      if (d && d.approvata && d.mov) out.push({ t: `La posa definitiva è stata spostata da ${d.mov.da} a ${d.mov.a} (il ${fmtDay(d.mov.il)}). Causa: ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
+      return out;
+    }
     if (!row.r.ok) out.push({ t: E.humanWarn("orizzonte"), bad: true });
     for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
+    const m = row.piano && row.piano.mov;
+    if (m) out.push({ t: `La stima di posa è cambiata da ${m.da} a ${m.a} (il ${fmtDay(m.il)}). Causa: ${m.motivo}.`, bad: m.a > m.da });
     return out;
   }
   function offertaCard(row, canEdit) {
@@ -232,7 +312,7 @@
     return `<article class="oc ${done ? "done" : ""}">
       <div class="h"><div class="t"><b>Offerta ${esc(row.numero)} · ${esc(row.cliente)}</b>
         <span>Inserita il ${esc(fmtDay(row.creata_il))} · ${r.fori} fori</span></div>
-        ${conf ? `<div class="p"><span class="badge ok">Confermata</span><div class="posa" style="font-size:18px">Commessa ${esc(row.commessa)}</div></div>`
+        ${conf ? `<div class="p"><span class="badge ok">Confermata</span><div class="posa" style="font-size:18px">Commessa ${esc(row.commessa)}</div>${row.definitiva && row.definitiva.approvata && row.definitiva.pub ? `<small>Posa definitiva</small><div class="posa">${esc(row.definitiva.pub)}</div>` : `<small>Data definitiva in verifica da parte dell'ufficio</small>`}</div>`
           : `<div class="p"><span class="badge warn">Stima indicativa</span><small>Settimana indicativa di posa</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
         ${r.req != null ? `<small>Richiesta dal cliente: ${wl(r.req)}</small>` : ""}</div>`}</div>
       ${av.length ? `<div class="warns">${av.map(a => `<div>⚠ ${esc(a.t)}</div>`).join("")}</div>` : ""}
@@ -365,7 +445,7 @@
       const mine = act.filter(r => r.agente_id === a.id), nx = mine.filter(r => r.r.ok).sort((x, y) => x.r.posa - y.r.posa)[0];
       return `<tr><td>${esc(a.nome)}${a.attivo ? "" : ' <span class="badge warn">disattivo</span>'}</td><td class="num">${mine.length}</td><td class="num">${mine.reduce((s, r) => s + r.r.fori, 0)}</td><td>${mine.filter(r => avvisiOf(r).length).length ? `<span class="badge warn">${mine.filter(r => avvisiOf(r).length).length}</span>` : '<span class="badge ok">0</span>'}</td></tr>`;
     }).join("");
-    return `<div class="pagehead"><h2>Stime degli agenti — riepilogo</h2></div>
+    return `<div class="pagehead"><h2>Stime degli agenti — riepilogo</h2><div class="sp"></div><button class="btn" id="restime" title="Rifà il calcolo di tutte le stime attorno alle commesse confermate">Ricalcola stime</button></div>
       <div class="stats">
         <div class="stat"><div class="l">Offerte attive</div><div class="v num">${act.length}</div></div>
         <div class="stat"><div class="l">Fori in lavorazione</div><div class="v num">${act.reduce((s, r) => s + r.r.fori, 0)}</div></div>
@@ -675,7 +755,7 @@
       ${sov.length ? `<div class="panel"><h3>Sovraccarichi del piano definitivo</h3>${sov.slice(0, 12).map(x => `<div class="alert bad"><i></i><div><b>${PR.cal[x.w].label} · ${x.l.name}</b><span>+${num(x.ex)} ${x.l.unit} oltre la capacità</span></div></div>`).join("")}</div>` : ""}`;
   }
   async function salvaRiga(np, ok) {
-    await busy(async () => { try { await Api.pianoSalva(np); await refresh(true); if (ok) toast(ok); } catch (e) { toast(e.message, true); } });
+    await busy(async () => { try { await salvaPR(np); await refresh(true); await ricalcolaStime(); if (ok) toast(ok); } catch (e) { toast(e.message, true); } });
     render();
   }
   function bindReale() {
@@ -710,7 +790,7 @@
       const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: v.i, rilievo: ril, posa_rich: form.posaRich || "", manuali: {}, note: "", approvata: false };
       np.piano = calcReale(np, S.realOcc);
       await busy(async () => {
-        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
+        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); await Api.impostaDefinitiva(o.id, { approvata: false, pub: null, mov: null }); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); await ricalcolaStime(); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
         catch (e) { toast(e.message, true); }
       });
       render();
@@ -724,8 +804,8 @@
       await busy(async () => {
         try {
           const done = [];
-          for (const p of sortReale(S.piano)) { const np = { ...p }; np.piano = calcReale(np, realOccOf(done)); done.push(np); await Api.pianoSalva(np); }
-          await refresh(true); toast("Piano ricalcolato.");
+          for (const p of sortReale(S.piano)) { const np = { ...p }; np.piano = calcReale(np, realOccOf(done)); done.push(np); await salvaPR(np, p); }
+          await refresh(true); await ricalcolaStime(); toast("Piano ricalcolato.");
         } catch (e) { toast(e.message, true); }
       });
       render();
@@ -752,7 +832,7 @@
       const p = S.piano.find(x => x.id === b.dataset.prDel);
       if (!confirm(`Togliere la commessa ${p.commessa} dal piano definitivo?\nL'offerta ${p.offerta_num} tornerà senza commessa.`)) return;
       await busy(async () => {
-        try { await Api.pianoElimina(p.id); if (p.offerta_id) await Api.impostaCommessa(p.offerta_id, ""); await refresh(true); toast("Commessa tolta dal piano."); }
+        try { await Api.pianoElimina(p.id); if (p.offerta_id) { await Api.impostaCommessa(p.offerta_id, ""); await Api.impostaDefinitiva(p.offerta_id, null); } await refresh(true); await ricalcolaStime(); toast("Commessa tolta dal piano."); }
         catch (e) { toast(e.message, true); }
       });
       render();
@@ -785,13 +865,13 @@
       const v = checkForm(inputFromForm(p.input, form)); if (v.errs.length) return toast(v.errs[0], true);
       const np = JSON.parse(JSON.stringify(p)); np.input = v.i; np.posa_rich = form.posaRich;
       np.piano = calcReale(np, occMinus(S.realOcc, p.piano.foot));
-      await busy(async () => { try { await Api.pianoSalva(np); close(); await refresh(true); render(); toast("Commessa ricalcolata."); } catch (e) { toast(e.message, true); } });
+      await busy(async () => { try { await salvaPR(np); close(); await refresh(true); await ricalcolaStime(); render(); toast("Commessa ricalcolata."); } catch (e) { toast(e.message, true); } });
     };
   }
 
   /* ---------- GESTORE: carico ---------- */
   function vCarico(real) {
-    const L = E.LINES, P = real ? S.PR : S.P, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
+    const L = E.LINES, P = real ? S.PR : S.PO, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
     const cells = wks.map(w => `<div class="wk ${w === S.cur ? "cur" : ""}">${P.cal[w].label}</div>` + L.map(l => {
       const cp = P.cap[l.key][w], ld = P.load[l.key][w];
       if (P.blk && P.blk[l.key][w]) return `<div class="rec" title="Slot chiusi ai nuovi ordini: la produzione recupera il ritardo"><b>Recupero ritardo</b>${ld > 0 ? `<br><span class="num small">già assegnato ${num(ld)} / ${num(cp)} ${l.unit}</span>` : ""}</div>`;
@@ -801,6 +881,28 @@
     }).join("")).join("");
     return `<div class="pagehead"><h2>Carico per settimana${real ? " — piano definitivo" : " — stime degli agenti"}</h2></div><p class="sub">${real ? "Carico delle commesse del piano definitivo" : "Carico delle offerte di tutti gli agenti"} rispetto alla capacità. Sfondo rosso = oltre la capacità; sfondo viola = settimana riservata al recupero del ritardo.</p>
       <div class="panel scroll" style="padding:0"><div class="cg"><div class="h">Settimana</div>${L.map(l => `<div class="h">${l.name}</div>`).join("")}${cells}</div></div>`;
+  }
+
+  /* ---------- GESTORE: calendario slot con blu (confermate) e arancione (provvisorie) ---------- */
+  function vCalSlot() {
+    const L = E.LINES, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
+    const who = {}, add = (k, s, t, n) => { const o = (who[k + "|" + s] = who[k + "|" + s] || { b: [], o: [] }); o[t].push(n); };
+    for (const p of S.piano) for (const [k, arr] of Object.entries((p.piano && p.piano.foot) || {})) for (const [s, c] of arr) add(k, s, "b", `${p.commessa} ${p.cliente || ""} (${num(c)})`);
+    for (const o of S.rows) if (!o.commessa) for (const [k, arr] of Object.entries((o.piano && o.piano.foot) || {})) for (const [s, c] of arr) add(k, s, "o", `${o.numero} ${o.cliente} (${num(c)})`);
+    const cells = wks.map(w => {
+      const lb = S.P.cal[w].label;
+      return `<div class="wk ${w === S.cur ? "cur" : ""}">${lb}${w === S.cur ? " ·oggi" : ""}</div>` + L.map(l => {
+        const cp = S.PR.cap[l.key][w], b = S.PR.load[l.key][w], o = S.PO.load[l.key][w], k = who[l.key + "|" + lb] || { b: [], o: [] };
+        if (S.P.blk && S.P.blk[l.key][w]) return `<div class="rec"><b>Recupero ritardo</b></div>`;
+        if (cp <= 0 && b + o <= 0) return `<div class="cl">chiuso</div>`;
+        const sc = Math.max(cp, b + o, 1e-9), tip = [`Confermate (blu): ${k.b.join(", ") || "—"}`, `Provvisorie (arancione): ${k.o.join(", ") || "—"}`].join("\n");
+        return `<div class="sc ${b + o > cp + 0.01 ? "over" : ""}" title="${esc(tip)}"><div class="sbar"><i class="sb" style="width:${(b / sc * 100).toFixed(1)}%"></i><i class="so" style="width:${(o / sc * 100).toFixed(1)}%"></i></div><span class="num small"><b class="tb">${num(b)}</b> + <b class="to">${num(o)}</b> / ${num(cp)} ${l.unit}</span></div>`;
+      }).join("");
+    }).join("");
+    return `<div class="pagehead"><h2>Calendario slot</h2></div>
+      <p class="sub">${info("Per ogni reparto e settimana: in blu lo spazio occupato dalle commesse confermate, in arancione quello delle stime provvisorie degli agenti, il resto è libero. Le commesse confermate hanno la precedenza: quando una offerta diventa commessa prende il primo slot disponibile e le stime arancioni si spostano più avanti. Passa il mouse su una cella per vedere quali commesse e offerte la occupano.")} Blu = commesse confermate · arancione = stime provvisorie · viola = settimane riservate al recupero ritardo.</p>
+      <div class="panel scroll" style="padding:0"><div class="cg"><div class="h">Settimana</div>${L.map(l => `<div class="h">${l.name}</div>`).join("")}${cells}</div></div>
+      <div class="legend"><span><i class="sb-i"></i>Commesse confermate</span><span><i class="so-i"></i>Stime provvisorie</span><span><i class="sr-i"></i>Recupero ritardo</span><span>Sfondo rosso = oltre la capacità</span></div>`;
   }
 
   /* ---------- GESTORE: impostazioni ---------- */
@@ -857,7 +959,7 @@
       const vf = q("#validafrom").value.trim().toUpperCase();
       if (!/^\d{4}-W\d{2}$/.test(vf) || E.mondayOfLabel(vf) == null) return toast("Settimana di validità non valida (esempio 2026-W45).", true);
       for (const x of c.closures) if (E.mondayOfLabel(x.from) == null || (x.to && E.mondayOfLabel(x.to) == null)) return toast("Chiusura con settimana non valida: " + x.from, true);
-      await busy(async () => { try { await Api.saveConfig({ valida_da: vf, cfg: c }); await refresh(true); toast("Impostazioni salvate."); } catch (e) { toast(e.message, true); } });
+      await busy(async () => { try { await Api.saveConfig({ valida_da: vf, cfg: c }); await refresh(true); const mv = await ricalcolaStime(); toast("Impostazioni salvate." + (mv ? ` Stime ricalcolate: ${mv} spostate.` : "")); } catch (e) { toast(e.message, true); } });
       render();
     };
   }

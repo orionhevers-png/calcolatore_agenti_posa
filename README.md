@@ -63,3 +63,12 @@ Ore per pezzo alluminio (segnaposto 1), date di chiusura, code iniziali.
 
 - **Coda iniziale: primo slot da riempire.** Per ogni reparto una settimana fissa (es. 2026-W50) da cui il sistema comincia a riempire la capacità; prima è considerato occupato. Serve al passaggio dal vecchio programma e non scorre con le settimane. Vuoto = da oggi. Le vecchie «settimane di coda» vengono convertite nella settimana corrispondente al primo salvataggio.
 - **Recupero ritardo di produzione.** Righe «reparto (o tutti) · dalla settimana · N settimane» (di norma 1): gli slot di quelle settimane sono chiusi ai nuovi ordini, così la produzione recupera il ritardo. Nel Carico compaiono come «Recupero ritardo»; per gli agenti risultano chiusi. Le offerte già calcolate non si spostano.
+
+## Priorità alle commesse confermate (blu) sulle stime provvisorie (arancione)
+
+- Una commessa confermata (piano definitivo) occupa il primo slot disponibile e ha la precedenza: le stime degli agenti si ricalcolano attorno ad essa, in ordine di inserimento, e si spostano. L'agente vede la nuova data e l'avviso con la causa («reparto PVC già occupato», «settimane riservate al recupero ritardo», ecc.).
+- Il ricalcolo lo fa il browser del gestore dopo ogni modifica del piano definitivo o delle impostazioni; c'è anche il pulsante «Ricalcola stime» in «Stime agenti».
+- Quando la commessa è collegata e il gestore dà l'OK, l'agente vede «Confermata» con la **posa definitiva**; se poi la data cambia compare un avviso con il motivo.
+- Il gestore ha il **Calendario slot** (Piano definitivo): blu = commesse, arancione = stime, viola = recupero ritardo. L'agente continua a vedere solo slot liberi, in forma anonima.
+- Va eseguito una volta in Supabase lo script `supabase/aggiornamento_priorita.sql`.
+- Per tornare indietro: il commit precedente è `be3a7e5` (si ripristina con `git revert`); lo script SQL è solo additivo.

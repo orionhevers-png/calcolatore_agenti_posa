@@ -56,6 +56,16 @@
         fail(error);
       },
       async impostaCommessa(id, commessa) { const { error } = await sb.rpc("imposta_commessa", { p_id: id, p_commessa: commessa || "" }); fail(error); },
+      async impostaDefinitiva(id, def) {
+        const { error } = await sb.rpc("imposta_definitiva", { p_id: id, p_def: def });
+        if (error && /imposta_definitiva|schema cache/.test(error.message)) error.message = "Manca l'aggiornamento del database: esegui lo script «aggiornamento_priorita.sql» in Supabase → SQL Editor.";
+        fail(error);
+      },
+      async ricalcolaStime(items) {
+        const { error } = await sb.rpc("ricalcola_stime", { p_items: items });
+        if (error && /ricalcola_stime|schema cache/.test(error.message)) error.message = "Manca l'aggiornamento del database: esegui lo script «aggiornamento_priorita.sql» in Supabase → SQL Editor.";
+        fail(error);
+      },
       async pianoSalva(r) {
         const row = { offerta_id: r.offerta_id || null, offerta_num: r.offerta_num, cliente: r.cliente, agente_nome: r.agente_nome, posa_agente: r.posa_agente || null, commessa: r.commessa, input: r.input, rilievo: r.rilievo, posa_rich: r.posa_rich || null, manuali: r.manuali || {}, note: r.note || null, approvata: !!r.approvata, piano: r.piano, aggiornata_il: new Date().toISOString() };
         const q = r.id ? sb.from("piano_reale").update(row).eq("id", r.id) : sb.from("piano_reale").insert(row);
@@ -93,7 +103,8 @@
     const meOf = id => { const u = mem.users.find(x => x.id === id); return u ? { id: u.id, nome: u.nome, email: u.email, ruolo: u.ruolo } : null; };
     const occTot = () => {
       const m = {};
-      for (const o of mem.offerte) for (const [k, arr] of Object.entries(o.piano.foot || {})) for (const [s, c] of arr) { const key = k + "|" + s; m[key] = (m[key] || 0) + c; }
+      for (const o of mem.offerte) if (!o.commessa) for (const [k, arr] of Object.entries(o.piano.foot || {})) for (const [s, c] of arr) { const key = k + "|" + s; m[key] = (m[key] || 0) + c; }
+      for (const p of mem.piano) for (const [k, arr] of Object.entries((p.piano && p.piano.foot) || {})) for (const [s, c] of arr) { const key = k + "|" + s; m[key] = (m[key] || 0) + c; }   // commesse confermate: precedenza
       return { versione: mem.versione, righe: Object.entries(m).map(([key, c]) => { const [r, s] = key.split("|"); return { r, s, c }; }) };
     };
     return {
@@ -153,6 +164,11 @@
       async impostaCommessa(id, commessa) {
         const o = mem.offerte.find(x => x.id === id); if (!o) return;
         o.commessa = String(commessa || "").trim() || null; store(mem);
+      },
+      async impostaDefinitiva(id, def) { const o = mem.offerte.find(x => x.id === id); if (o) { o.definitiva = def; store(mem); } },
+      async ricalcolaStime(items) {
+        for (const it of items) { const o = mem.offerte.find(x => x.id === it.id); if (o && !o.commessa) o.piano = it.piano; }
+        mem.versione++; store(mem);
       },
       async pianoSalva(r) {
         const now = new Date().toISOString();
