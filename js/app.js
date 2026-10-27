@@ -90,7 +90,7 @@
     const out = [];
     if (old) {
       const fasi = fasiCambiate(old.piano, np.piano, np.manuali || {});
-      if (fasi.length) out.push((np.piano.posa > old.piano.posa ? "ritardo su: " : "anticipo su: ") + fasi.join("; "));
+      if (fasi.length) out.push((np.piano.posa > old.piano.posa ? "ritardo su: " : np.piano.posa < old.piano.posa ? "posa anticipata, spostamenti su: " : "spostamenti su: ") + fasi.join("; "));
       if (old.rilievo !== np.rilievo) out.push(`rilievo riassegnato dal gestore (da ${old.rilievo} a ${np.rilievo})`);
       const mo = old.manuali || {}, mn = np.manuali || {};
       const chg = Object.keys(MANK).filter(k => (mo[k] || "") !== (mn[k] || "")), set = chg.filter(k => mn[k]), cl = chg.filter(k => !mn[k]);
