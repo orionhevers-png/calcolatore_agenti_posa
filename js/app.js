@@ -92,7 +92,7 @@
   // data definitiva mostrata all'agente (solo dopo l'OK del gestore) e ultimo spostamento con il motivo
   function defOf(np, old) {
     const of = S.offerte.find(o => o.id === np.offerta_id), prev = (of && of.definitiva) || {}, posa = np.piano.posa || null;
-    const d = { approvata: !!np.approvata, pub: np.approvata ? posa : (prev.pub || null), mov: prev.mov || null };
+    const d = { approvata: !!np.approvata, posa, pub: np.approvata ? posa : (prev.pub || null), mov: prev.mov || null };
     if (np.approvata && prev.pub && posa && prev.pub !== posa) d.mov = { da: prev.pub, a: posa, il: new Date().toISOString(), motivo: motivoReale(old, np) };
     return d;
   }
@@ -312,7 +312,7 @@
     return `<article class="oc ${done ? "done" : ""}">
       <div class="h"><div class="t"><b>Offerta ${esc(row.numero)} · ${esc(row.cliente)}</b>
         <span>Inserita il ${esc(fmtDay(row.creata_il))} · ${r.fori} fori</span></div>
-        ${conf ? `<div class="p"><span class="badge ok">Confermata</span><div class="posa" style="font-size:18px">Commessa ${esc(row.commessa)}</div>${row.definitiva && row.definitiva.approvata && row.definitiva.pub ? `<small>Posa definitiva</small><div class="posa">${esc(row.definitiva.pub)}</div>` : `<small>Data definitiva in verifica da parte dell'ufficio</small>`}</div>`
+        ${conf ? `<div class="p"><span class="badge ok">Confermata</span><div class="posa" style="font-size:18px">Commessa ${esc(row.commessa)}</div>${(row.definitiva && (row.definitiva.posa || row.definitiva.pub)) ? `<small>${row.definitiva.approvata ? "Posa definitiva" : "Posa definitiva prevista"}</small><div class="posa">${esc(row.definitiva.posa || row.definitiva.pub)}</div>${row.definitiva.approvata ? "" : `<small>In verifica da parte dell'ufficio: può ancora cambiare</small>`}` : `<small>Data definitiva in arrivo dall'ufficio</small>`}</div>`
           : `<div class="p"><span class="badge warn">Stima indicativa</span><small>Settimana indicativa di posa</small><div class="posa">${r.ok ? wl(r.posa) : "—"}</div>
         ${r.req != null ? `<small>Richiesta dal cliente: ${wl(r.req)}</small>` : ""}</div>`}</div>
       ${av.length ? `<div class="warns">${av.map(a => `<div>⚠ ${esc(a.t)}</div>`).join("")}</div>` : ""}
@@ -790,7 +790,7 @@
       const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: v.i, rilievo: ril, posa_rich: form.posaRich || "", manuali: {}, note: "", approvata: false };
       np.piano = calcReale(np, S.realOcc);
       await busy(async () => {
-        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); await Api.impostaDefinitiva(o.id, { approvata: false, pub: null, mov: null }); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); await ricalcolaStime(); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
+        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); await Api.impostaDefinitiva(o.id, { approvata: false, posa: np.piano.posa || null, pub: null, mov: null }); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); await ricalcolaStime(); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
         catch (e) { toast(e.message, true); }
       });
       render();
