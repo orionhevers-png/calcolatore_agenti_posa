@@ -58,3 +58,8 @@ Ore per pezzo alluminio (segnaposto 1), date di chiusura, code iniziali.
 - Alluminio: serramenti a **1 o 2 ante** (ore = ante × ore per anta). Portoncini PVC e **portoncini alluminio** distinti; questi ultimi usano le ore «per portoncino alluminio» (Impostazioni, default 4: da verificare).
 - Le offerte già inserite restano valide: le vecchie «ante PVC / ante alluminio» sono lette come serramenti a 1 anta. Nessun aggiornamento del database.
 - Per gli agenti il banner «Tempi indicativi» è più evidente.
+
+## Due tipi di coda (Impostazioni)
+
+- **Coda iniziale: primo slot da riempire.** Per ogni reparto una settimana fissa (es. 2026-W50) da cui il sistema comincia a riempire la capacità; prima è considerato occupato. Serve al passaggio dal vecchio programma e non scorre con le settimane. Vuoto = da oggi. Le vecchie «settimane di coda» vengono convertite nella settimana corrispondente al primo salvataggio.
+- **Recupero ritardo di produzione.** Righe «reparto (o tutti) · dalla settimana · N settimane» (di norma 1): gli slot di quelle settimane sono chiusi ai nuovi ordini, così la produzione recupera il ritardo. Nel Carico compaiono come «Recupero ritardo»; per gli agenti risultano chiusi. Le offerte già calcolate non si spostano.

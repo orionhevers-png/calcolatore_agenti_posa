@@ -328,7 +328,7 @@
       const cal = P.cal[w];
       return `<div class="wk ${w === S.cur ? "cur" : ""}">${cal.label}${w === S.cur ? " ·oggi" : ""}</div>` + L.map(l => {
         const cp = P.cap[l.key][w], ld = P.load[l.key][w];
-        if (cp <= 0) return `<div class="cl">chiuso</div>`;
+        if (cp <= 0 || (P.blk && P.blk[l.key][w])) return `<div class="cl">chiuso</div>`;
         const fr = Math.max(0, (cp - ld) / cp), used = 1 - fr, c = fr >= .6 ? "g" : fr >= .25 ? "m" : "b";
         return `<div><span class="free ${c}">${fr <= 0.001 ? "Pieno" : Math.round(fr * 100) + "% libero"}</span><div class="meter"><i class="${used >= .95 ? "full" : used >= .75 ? "hi" : ""}" style="width:${Math.min(100, used * 100).toFixed(0)}%"></i></div></div>`;
       }).join("");
@@ -794,11 +794,12 @@
     const L = E.LINES, P = real ? S.PR : S.P, wks = []; for (let w = S.cur; w <= Math.min(E.NW, S.cur + 51); w++) wks.push(w);
     const cells = wks.map(w => `<div class="wk ${w === S.cur ? "cur" : ""}">${P.cal[w].label}</div>` + L.map(l => {
       const cp = P.cap[l.key][w], ld = P.load[l.key][w];
+      if (P.blk && P.blk[l.key][w]) return `<div class="rec" title="Slot chiusi ai nuovi ordini: la produzione recupera il ritardo"><b>Recupero ritardo</b>${ld > 0 ? `<br><span class="num small">già assegnato ${num(ld)} / ${num(cp)} ${l.unit}</span>` : ""}</div>`;
       if (cp <= 0 && ld <= 0) return `<div class="cl">chiuso</div>`;
       const p = cp > 0 ? ld / cp : 9, over = ld > cp + 0.01;
       return `<div class="${over ? "over" : ""}"><span class="num"><b>${num(ld)}</b> / ${num(cp)} ${l.unit}</span><div class="meter"><i class="${p >= 1.0 ? "full" : p >= .75 ? "hi" : ""}" style="width:${Math.min(100, p * 100).toFixed(0)}%"></i></div></div>`;
     }).join("")).join("");
-    return `<div class="pagehead"><h2>Carico per settimana${real ? " — piano definitivo" : " — stime degli agenti"}</h2></div><p class="sub">${real ? "Carico delle commesse del piano definitivo" : "Carico delle offerte di tutti gli agenti"} rispetto alla capacità. Sfondo rosso = oltre la capacità.</p>
+    return `<div class="pagehead"><h2>Carico per settimana${real ? " — piano definitivo" : " — stime degli agenti"}</h2></div><p class="sub">${real ? "Carico delle commesse del piano definitivo" : "Carico delle offerte di tutti gli agenti"} rispetto alla capacità. Sfondo rosso = oltre la capacità; sfondo viola = settimana riservata al recupero del ritardo.</p>
       <div class="panel scroll" style="padding:0"><div class="cg"><div class="h">Settimana</div>${L.map(l => `<div class="h">${l.name}</div>`).join("")}${cells}</div></div>`;
   }
 
@@ -806,7 +807,9 @@
   function vImpostazioni() {
     const c = S.cfg, tipi = E.tipiOf(c), curLbl = wl(S.cur);
     const f = (k, l, u, step, tip) => `<label class="field"><span>${l}${tip ? " " + info(tip) : ""}</span><input class="inp" type="number" min="0" step="${step || 1}" data-k="${k}" value="${c[k]}"><span class="u">${u || ""}</span></label>`;
-    const fc = (k, l, u) => `<label class="field"><span>${l}</span><input class="inp" type="number" min="0" step="1" data-c="${k}" value="${c.coda[k]}"><span class="u">${u}</span></label>`;
+    // primo slot da riempire: se c'erano le vecchie «settimane di coda» le trasformo nella settimana corrispondente
+    const pStart = k => c.partenza[k] || (+c.coda[k] > 0 ? S.P.cal[Math.min(E.NW, S.cur + (k === "ril" ? 1 : 0) + Math.floor(+c.coda[k]))].label : "");
+    const fp = (k, l) => `<label class="field"><span>${l}</span><input class="inp" data-p="${k}" value="${esc(pStart(k))}" placeholder="da oggi"><span class="u">es. 2026-W50 · vuoto = da oggi</span></label>`;
     return `<div class="settings"><div class="pagehead"><h2>Impostazioni</h2><div class="sp"></div><button class="btn pri" id="savecfg">Salva impostazioni</button></div>
       <div class="panel"><h3>Capacità settimanale</h3>
         <p class="sub">I nuovi valori valgono dalla settimana scelta in poi. Le offerte già confermate non vengono ricalcolate: se la nuova capacità è inferiore al carico già assegnato, la settimana compare tra i sovraccarichi.</p>
@@ -816,8 +819,12 @@
       <div class="panel"><h3>Tempi e parametri</h3><p class="sub">Si applicano alle offerte nuove o modificate da ora in avanti.</p>
         <div class="setgrid">${f("tRil", "Rilievo → conferma ordine", "settimane", 1, "Tempo che passa tra il rilievo e la conferma d'ordine del cliente.")}${f("tCo", "Conferma → ordine materiali", "settimane", 1, "Tempo tra la conferma e l'invio dell'ordine ai fornitori.")}${f("buffer", "Cuscinetto prima della posa", "settimane", 1, "Settimane di margine tra la fine della produzione e la posa.")}${f("giorniSospesa", "Offerta sospesa dopo", "giorni", 1, "Se un'offerta non riceve il numero di commessa entro questi giorni dall'inserimento, passa tra le offerte sospese dell'agente.")}
         ${f("hAnteAlu", "Ore per anta alluminio", "ore / anta", 0.1, "Un serramento in alluminio a 2 ante conta 2 ante.")}${f("hAlzAlu", "Ore per alzante alluminio", "ore / pezzo", 0.1)}${f("hPortAlu", "Ore per portoncino alluminio", "ore / pezzo", 0.1, "Ore di lavoro in reparto alluminio per ogni portoncino in alluminio.")}${f("hScuriPvc", "Ore per scuro PVC", "ore / pezzo", 0.1)}${f("hScuriAlu", "Ore per scuro alluminio", "ore / pezzo", 0.1)}</div>
-        <h3 style="margin-top:18px">Coda iniziale (settimane già occupate) ${info("Settimane di lavoro già in coda in ogni reparto prima delle offerte inserite nel sistema.")}</h3>
-        <div class="setgrid">${fc("ril", "Rilievo", "settimane")}${fc("pvc", "Ante PVC", "settimane")}${fc("alz", "Alzanti PVC", "settimane")}${fc("por", "Portoncini", "settimane")}${fc("alu", "Alluminio", "settimane")}${fc("scu", "Reparto scuri", "settimane")}</div></div>
+        <h3 style="margin-top:18px">Coda iniziale: primo slot da riempire ${info("Serve al passaggio dal vecchio programma. Per ogni reparto indica la settimana da cui il sistema comincia a riempire la capacità: prima di quella settimana il reparto è considerato già occupato. È una data fissa, non si sposta con il passare delle settimane. Vuoto = da oggi.")}</h3>
+        <div class="setgrid">${fp("ril", "Rilievo")}${fp("pvc", "Ante PVC")}${fp("alz", "Alzanti PVC")}${fp("por", "Portoncini")}${fp("alu", "Alluminio")}${fp("scu", "Reparto scuri")}</div></div>
+      <div class="panel rcpanel"><h3>Recupero ritardo di produzione ${info("Quando la produzione è indietro, riserva una o più settimane: gli slot di quel reparto vengono chiusi ai nuovi ordini e la produzione li usa per smaltire il ritardo. Le offerte già calcolate non si spostano; quelle nuove e quelle ricalcolate saltano le settimane riservate.")}</h3>
+        <p class="sub">Settimane chiuse ai nuovi ordini per recuperare il ritardo. Di norma basta una settimana. Compaiono nel Carico come «Recupero ritardo».</p>
+        <div class="clrow rch"><span>Reparto</span><span>Dalla settimana</span><span>N° settimane</span><span></span></div>
+        <div id="rcs">${(c.recuperi || []).map(rcRow).join("")}</div><button class="btn sm" id="addrc">+ Aggiungi recupero</button></div>
       <div class="panel"><h3>Chiusure</h3><p class="sub">Percentuale di capacità disponibile: 0 = chiuso, 50 = mezza settimana.</p>
         <div id="cls">${c.closures.map(clRow).join("")}</div><button class="btn sm" id="addcl">+ Aggiungi chiusura</button></div>
       <div class="panel"><h3>Tempi materiali (settimane)</h3><p class="sub">«Prima del rilievo» = materiale da ordinare prima del rilievo (monoblocchi, cassonetti ALPAC, falsitelai).</p>
@@ -828,15 +835,22 @@
       <div class="panel"><h3>Storico</h3><div class="scroll"><table class="t"><thead><tr><th>Salvato il</th><th>Capacità valide da</th><th>Rilievo</th><th>PVC</th><th>Alz.</th><th>Port.</th><th>Alu</th><th>Scuri</th></tr></thead><tbody>
       ${S.vlist.map((v, i) => { const b = E.baseOf(v.cfg), meta = S.versions[i]; return `<tr><td class="small">${meta ? new Date(meta.creato_il).toLocaleDateString("it-IT") : "predefinite"}</td><td class="num">${v.from === "2000-W01" ? "sempre" : v.from}</td><td class="num">${b.ril}</td><td class="num">${b.pvc}</td><td class="num">${b.alz}</td><td class="num">${b.por}</td><td class="num">${b.alu}</td><td class="num">${b.scu}</td></tr>`; }).reverse().join("")}</tbody></table></div></div></div>`;
   }
+  const rcRow = r => `<div class="clrow rcrow"><select class="inp" data-rc="r"><option value="all" ${!r.r || r.r === "all" ? "selected" : ""}>Tutti i reparti</option>${E.LINES.map(l => `<option value="${l.key}" ${r.r === l.key ? "selected" : ""}>${l.name}</option>`).join("")}</select><input class="inp" data-rc="from" value="${esc(r.from || "")}" placeholder="2026-W50"><input class="inp" type="number" min="1" max="12" data-rc="weeks" value="${r.weeks || 1}"><button class="btn sm danger" data-rmrc type="button">✕</button></div>`;
   const clRow = c => `<div class="clrow"><input class="inp" data-cl="from" value="${esc(c.from)}" placeholder="2026-W52"><input class="inp" data-cl="to" value="${esc(c.to || c.from)}" placeholder="2026-W52"><input class="inp" type="number" min="0" max="100" data-cl="pct" value="${Math.round((c.pct || 0) * 100)}"><button class="btn sm danger" data-rmcl type="button">✕</button></div>`;
   function bindSettings() {
     const cls = document.getElementById("cls");
     document.getElementById("addcl").onclick = () => { cls.insertAdjacentHTML("beforeend", clRow({ from: "", to: "", pct: 0 })); wireRm(); };
     const wireRm = () => cls.querySelectorAll("[data-rmcl]").forEach(b => (b.onclick = () => b.parentElement.remove())); wireRm();
+    const rcs = document.getElementById("rcs");
+    const wireRc = () => rcs.querySelectorAll("[data-rmrc]").forEach(b => (b.onclick = () => b.parentElement.remove())); wireRc();
+    document.getElementById("addrc").onclick = () => { rcs.insertAdjacentHTML("beforeend", rcRow({ r: "all", from: "", weeks: 1 })); wireRc(); };
     document.getElementById("savecfg").onclick = async () => {
       const c = JSON.parse(JSON.stringify(S.cfg)), q = s => document.querySelector(s);
       document.querySelectorAll("[data-k]").forEach(i => (c[i.dataset.k] = Number(i.value) || 0));
-      document.querySelectorAll("[data-c]").forEach(i => (c.coda[i.dataset.c] = Number(i.value) || 0));
+      c.partenza = {}; for (const k of Object.keys(c.coda)) c.coda[k] = 0;   // le vecchie «settimane di coda» sono sostituite dal primo slot
+      for (const i of document.querySelectorAll("[data-p]")) { const v = i.value.trim().toUpperCase(); if (!v) continue; if (!/^\d{4}-W\d{2}$/.test(v) || E.mondayOfLabel(v) == null) return toast("Primo slot non valido: " + v + " (esempio 2026-W50).", true); c.partenza[i.dataset.p] = v; }
+      c.recuperi = [...rcs.querySelectorAll(".rcrow")].map(r => ({ r: r.querySelector('[data-rc=r]').value, from: r.querySelector('[data-rc=from]').value.trim().toUpperCase(), weeks: Math.max(1, Math.floor(Number(r.querySelector('[data-rc=weeks]').value) || 1)) })).filter(x => x.from);
+      for (const x of c.recuperi) if (!/^\d{4}-W\d{2}$/.test(x.from) || E.mondayOfLabel(x.from) == null) return toast("Recupero ritardo con settimana non valida: " + x.from, true);
       c.closures = [...cls.querySelectorAll(".clrow")].map(r => ({ from: r.querySelector('[data-cl=from]').value.trim(), to: r.querySelector('[data-cl=to]').value.trim(), pct: (Number(r.querySelector('[data-cl=pct]').value) || 0) / 100 })).filter(x => x.from);
       c.tipi = {};
       document.querySelectorAll("[data-t]").forEach(i => { const o = (c.tipi[i.dataset.t] = c.tipi[i.dataset.t] || {}); o[i.dataset.f] = i.dataset.f === "early" ? i.checked : Number(i.value) || 0; });

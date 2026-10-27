@@ -108,8 +108,10 @@ window.exportExcel = async function (S) {
   ws.addRow([]); const p2 = ws.addRow(["Tempi e parametri", "Valore", "Unità"]); hdr(ws, p2.number);
   kv("Rilievo → conferma ordine", cfg.tRil, "settimane"); kv("Conferma → ordine materiali", cfg.tCo, "settimane"); kv("Cuscinetto prima della posa", cfg.buffer, "settimane"); kv("Offerta sospesa dopo", cfg.giorniSospesa, "giorni");
   kv("Ore per anta alluminio", cfg.hAnteAlu, "ore/pezzo"); kv("Ore per alzante alluminio", cfg.hAlzAlu, "ore/pezzo"); kv("Ore per portoncino alluminio", cfg.hPortAlu != null ? cfg.hPortAlu : 4, "ore/pezzo"); kv("Ore per scuro PVC", cfg.hScuriPvc, "ore/pezzo"); kv("Ore per scuro alluminio", cfg.hScuriAlu, "ore/pezzo");
-  ws.addRow([]); const p3 = ws.addRow(["Coda iniziale", "Settimane", ""]); hdr(ws, p3.number);
-  for (const l of E.LINES) kv(l.name, cfg.coda[l.key], "settimane");
+  ws.addRow([]); const p3 = ws.addRow(["Coda iniziale — primo slot da riempire", "Settimana", ""]); hdr(ws, p3.number);
+  for (const l of E.LINES) kv(l.name, (cfg.partenza || {})[l.key] || (cfg.coda[l.key] ? "oggi + " + cfg.coda[l.key] + " sett." : "da oggi"), "");
+  ws.addRow([]); const p3b = ws.addRow(["Recupero ritardo — reparto", "Dalla settimana", "N° settimane"]); hdr(ws, p3b.number);
+  for (const r of cfg.recuperi || []) ws.addRow([r.r === "all" || !r.r ? "Tutti i reparti" : (E.LINES.find(l => l.key === r.r) || {}).name || r.r, r.from, r.weeks || 1]);
   ws.addRow([]); const p4 = ws.addRow(["Chiusure — da", "a", "% capacità disponibile"]); hdr(ws, p4.number);
   for (const c of cfg.closures) { const r = ws.addRow([c.from, c.to || c.from, c.pct]); r.getCell(3).numFmt = "0%"; }
   ws.addRow([]); const p5 = ws.addRow(["Storico capacità — valide dalla settimana", "Rilievo", "Ante PVC", "Alzanti", "Portoncini", "Alluminio", "Reparto scuri"]); hdr(ws, p5.number);

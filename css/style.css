@@ -317,3 +317,10 @@ th.f-ril{border-color:var(--ph-ril)!important} th.f-ord{border-color:var(--ph-or
 .indic.big b{color:var(--warn);font-size:15.5px;letter-spacing:.02em}
 .indic.big .ic{font-size:28px;color:var(--warn);line-height:1}
 .oc .p .badge.warn{margin-bottom:4px}
+
+/* recupero ritardo */
+.cg .rec{background:color-mix(in srgb,#7b4fb5 22%,transparent);color:var(--ink);font-size:12px;line-height:1.3;padding:4px 6px;border-radius:4px}
+.cg .rec b{color:#6a3fa3}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .cg .rec b{color:#c9a8f0}}
+.rcrow,.rch{grid-template-columns:1.2fr 1fr 110px auto}
+.rch{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px}

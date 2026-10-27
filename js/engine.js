@@ -25,6 +25,8 @@ function defaultCfg() {
     tecnici: 4, foriTecnico: 37.5, capPvc: 170, capAlz: 8, capPor: 9, capAlu: 200, capScu: 64, hPortAlu: 4,
     tRil: 2, tCo: 2, buffer: 2, giorniSospesa: 15, hAnteAlu: 1, hAlzAlu: 1, hScuriPvc: 3, hScuriAlu: 4.5,
     coda: { ril: 0, pvc: 0, alz: 0, por: 0, alu: 0, scu: 0 },
+    partenza: {},   // 1° slot da cui si riempie la capacità di ogni reparto (es. { pvc: "2026-W50" }): passaggio dal vecchio programma
+    recuperi: [],   // recupero ritardo: [{ r: "pvc" | "all", from: "2026-W50", weeks: 1 }] slot chiusi ai nuovi ordini
     closures: [
       { from: "2026-W52", to: "2026-W52", pct: 0.5 }, { from: "2027-W01", to: "2027-W01", pct: 0 },
       { from: "2027-W32", to: "2027-W33", pct: 0 }, { from: "2027-W51", to: "2027-W51", pct: 0.5 },
@@ -38,6 +40,8 @@ function mergeCfg(d) {
   if (!d) return b;
   const o = Object.assign({}, b, d);
   o.coda = Object.assign({}, b.coda, d.coda || {});
+  o.partenza = Object.assign({}, d.partenza || {});
+  o.recuperi = Array.isArray(d.recuperi) ? d.recuperi : [];
   o.closures = Array.isArray(d.closures) ? d.closures : b.closures;
   o.tipi = d.tipi || {};
   return o;
@@ -125,12 +129,24 @@ function plan(commesse, cfg, todayMs, opts) {
     const i = C.idxOf(o.s);
     if (i != null && i >= 1 && i <= NW && load[o.r]) load[o.r][i] = r6(load[o.r][i] + Number(o.c));
   }
+  // recupero ritardo: settimane (per reparto) chiuse ai nuovi ordini, riservate alla produzione per smaltire il ritardo
+  const blk = {};
+  for (const L of LINES) blk[L.key] = new Array(NW + 2).fill(false);
+  for (const rc of cfg.recuperi || []) {
+    const f = C.idxOf(rc.from); if (f == null) continue;
+    const n = Math.max(1, Math.floor(+rc.weeks || 1)), keys = !rc.r || rc.r === "all" ? LINES.map(l => l.key) : [rc.r];
+    for (let w = Math.max(1, f); w < f + n && w <= NW; w++) for (const k of keys) if (blk[k]) blk[k][w] = true;
+  }
+  // primo slot da cui si può riempire un reparto: data fissa di partenza (e, per le vecchie impostazioni, oggi + settimane di coda)
+  const partIdx = k => { const i = cfg.partenza && cfg.partenza[k] ? C.idxOf(cfg.partenza[k]) : null; return i != null ? i : 0; };
+  const startOf = k => Math.max(partIdx(k), cur + (+cfg.coda[k] || 0));
   const tipi = tipiOf(cfg), tmap = Object.fromEntries(tipi.map(t => [t.name, t]));
   function alloc(key, need, ready) {
     const parts = [];
     if (need <= 0) return { first: null, last: null, fit: true, parts };
     let rem = need, first = null, last = null;
     for (let w = Math.max(1, ready); w <= NW && rem > 0.001; w++) {
+      if (blk[key][w]) continue;
       const free = cap[key][w] - load[key][w];
       if (free <= 1e-9) continue;
       const take = r6(Math.max(0, Math.min(rem, free)));
@@ -169,7 +185,7 @@ function plan(commesse, cfg, todayMs, opts) {
     if (nSel + need.pvc + need.alz + need.por + need.alu === 0) r.warnings.push("Selezionare tipologie / quantità.");
     const E = s + early;
     // offerte: il rilievo parte dalla settimana successiva all'inserimento; piano reale: dalla settimana scelta dal gestore
-    const G = rilIdx != null ? Math.max(1, rilIdx) : Math.max(E, cur + 1 + cfg.coda.ril);
+    const G = rilIdx != null ? Math.max(1, rilIdx) : Math.max(E, cur + 1 + (+cfg.coda.ril || 0), partIdx("ril"));
     const ril = fori > 0 ? alloc("ril", fori, G) : { first: G, last: G, fit: true, parts: [] };
     const codaRil = fori > 0 && ril.first != null ? Math.max(0, ril.first - (rilIdx != null ? G : Math.max(E, cur + 1))) : 0;
     if (codaRil > 0) r.warnings.push(`Coda rilievo +${codaRil} sett.`);
@@ -183,7 +199,7 @@ function plan(commesse, cfg, todayMs, opts) {
     const foot = { ril: ril.parts };
     for (const k of ["pvc", "alz", "por", "alu", "scu"]) {
       if (need[k] <= 0) continue;
-      const a = alloc(k, need[k], Math.max(N, cur + cfg.coda[k]));
+      const a = alloc(k, need[k], Math.max(N, startOf(k)));
       fit = fit && a.fit; foot[k] = a.parts;
       if (a.first != null) { firsts.push(a.first); lasts.push(a.last); }
     }
@@ -205,7 +221,7 @@ function plan(commesse, cfg, todayMs, opts) {
     r.stock = r.ok ? posa - pLast - cfg.buffer : 0;
     res.push(r);
   }
-  return { C, cal, cur, res, cap, load, base, cfg };
+  return { C, cal, cur, res, cap, load, blk, base, cfg };
 }
 
 // ---- congelamento: l'offerta confermata viene salvata con settimane in formato etichetta (2026-W45),
