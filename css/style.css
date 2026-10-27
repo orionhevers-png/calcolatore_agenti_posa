@@ -332,3 +332,6 @@ th.f-ril{border-color:var(--ph-ril)!important} th.f-ord{border-color:var(--ph-or
 .cg .tb{color:var(--ph-ril)} .cg .to{color:#b9770e}
 .sb-i,.so-i,.sr-i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px}
 .sb-i{background:var(--ph-ril)} .so-i{background:#f0a23a} .sr-i{background:color-mix(in srgb,#7b4fb5 40%,transparent)}
+
+.loaderr{background:var(--bad-soft);color:var(--ink);border-bottom:3px solid var(--bad);padding:12px 20px;font-size:14px;line-height:1.5}
+.loaderr code{word-break:break-word;font-size:13px}

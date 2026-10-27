@@ -170,10 +170,15 @@
     try {
       const d = await Api.fetchAll(S.me);
       S.versions = d.versions; S.offerte = d.offerte; S.occ = d.occ; S.profili = d.profili; S.piano = d.piano || [];
-      compute();
+      S.loadErr = ""; compute();
       if (!silent) render();
       else if (!S.drawer && !document.activeElement.closest(".settings")) render();
-    } catch (e) { if (!silent) toast("Impossibile aggiornare i dati: " + e.message, true); }
+    } catch (e) {
+      S.loadErr = e.message || String(e);
+      if (!S.P) { try { compute(); } catch (_) { } }   // anche senza dati la schermata si disegna, con l'errore in evidenza
+      if (!silent) toast("Impossibile aggiornare i dati: " + e.message, true);
+      else if (S.me) render();   // l'errore resta visibile in un riquadro rosso: i dati nel database non sono toccati
+    }
   }
   async function busy(fn) {
     S.busy = true; document.body.insertAdjacentHTML("beforeend", '<div class="busy" id="busy"><div class="spin"></div></div>');
@@ -258,6 +263,7 @@
       ? `<div class="indic"><b>Piano definitivo.</b> Qui assegni il rilievo e decidi le date che contano. Gli agenti non le vedono.</div>`
       : sec === "prov" ? `<div class="indic"><b>Stime degli agenti.</b> Sono solo indicative e servono per consultazione: le date che contano sono nel Piano definitivo.</div>` : "")
       : `<div class="indic big"><span class="ic">⚠</span><div><b>TEMPI INDICATIVI — NON SONO UNA DATA CONFERMATA</b><br>La settimana di posa mostrata è solo una stima per orientarti con il cliente, calcolata sul carico del momento. Non promettere questa data: la programmazione definitiva la fa l'ufficio produzione.</div></div>`}
+    ${S.loadErr ? `<div class="loaderr"><b>Non riesco a leggere i dati dal database.</b> I dati non sono stati cancellati: sono ancora in Supabase. Messaggio: <code>${esc(S.loadErr)}</code> <button class="btn sm" id="retry">Riprova</button></div>` : ""}
     <main class="shell">${inner}</main>`;
   }
 
@@ -280,6 +286,7 @@
     $app.querySelectorAll("[data-tab]").forEach(b => (b.onclick = () => { S.tab = b.dataset.tab; if (S.me.ruolo === "gestore") lastTab[secOf(S.tab)] = S.tab; render(); window.scrollTo(0, 0); }));
     $app.querySelectorAll("[data-sec]").forEach(b => (b.onclick = () => { S.tab = lastTab[b.dataset.sec]; render(); window.scrollTo(0, 0); }));
     $app.querySelectorAll("[data-goto]").forEach(b => (b.onclick = e => doGoto(e, b)));
+    const rt = document.getElementById("retry"); if (rt) rt.onclick = () => refresh(false);
     const lo = document.getElementById("logout");
     if (lo) lo.onclick = async () => { await Api.logout(); S.me = null; S.offerte = []; document.documentElement.dataset.sec = ""; clearInterval(start.t); renderLogin(); };
     const dr = document.getElementById("dreset"); if (dr) dr.onclick = e => { e.preventDefault(); if (confirm("Azzerare i dati demo?")) Api.reset(); };
