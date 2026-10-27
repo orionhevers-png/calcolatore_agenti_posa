@@ -144,7 +144,12 @@
   const DAYMS = 86400000;
   // sospesa = senza numero di commessa da almeno N giorni (default 15)
   const isSospesa = row => !row.commessa && giorniDa(row.creata_il) >= S.sosp;
-  const isActive = row => !isSospesa(row) && (row.r.posa == null || row.r.posa >= S.cur);
+  // una commessa confermata resta in elenco finché non passa la sua posa definitiva (non la vecchia stima provvisoria)
+  const isActive = row => {
+    if (isSospesa(row)) return false;
+    if (row.commessa) { const d = row.definitiva, dp = d && (d.posa || d.pub); return dp ? dp >= S.P.cal[S.cur].label : true; }
+    return row.r.posa == null || row.r.posa >= S.cur;
+  };
   function phaseNow(row) {
     const r = row.r;
     if (!r.ok) return "Da verificare";
@@ -378,7 +383,7 @@
     const g = S.me.ruolo === "gestore";
     let rows = real
       ? S.piano.map(p => ({ numero: p.commessa, off: p.offerta_num || "", cliente: p.cliente || "", agente_nome: p.agente_nome || "", agente_id: null, rilievo: p.rilievo, r: E.thaw(p.piano, S.C) })).filter(r => r.r.ok && r.r.posa >= S.cur)
-      : S.rows.filter(r => r.r.ok && isActive(r));
+      : S.rows.filter(r => r.r.ok && !r.commessa && isActive(r));
     if (g && !real && S.agentF) rows = rows.filter(r => r.agente_id === S.agentF);
     if (real) rows.sort((a, b) => {
       const ka = S.gord === "rilievo" ? [a.rilievo, a.r.posa] : S.gord === "commessa" ? [String(a.numero).toLowerCase(), 0] : [a.r.posa, a.rilievo];
