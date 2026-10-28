@@ -232,7 +232,7 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden && S.me && !S.drawer) refresh(true); });
 
   /* ---------- struttura comune ---------- */
-  const TABS_A = [["cruscotto", "Cruscotto"], ["calendario", "Calendario slot liberi"]];
+  const TABS_A = [["cruscotto", "Cruscotto"], ["tutte", "Tutte le offerte"], ["calendario", "Calendario slot liberi"]];
   // gestore: tre sezioni. DEFINITIVO (protagonista), STIME AGENTI (consultazione), IMPOSTAZIONI.
   const TABS_DEF = [["panoramica", "Panoramica"], ["reale", "Commesse"], ["elenco", "Tutte le commesse"], ["gantt_r", "Gantt"], ["carico_r", "Carico"], ["cal_g", "Calendario slot"]];
   const TABS_PROV = [["p_riep", "Riepilogo stime"], ["offerte", "Offerte degli agenti"], ["gantt", "Gantt stime"], ["carico", "Carico stime"]];
@@ -268,7 +268,7 @@
     const g = S.me.ruolo === "gestore";
     const views = g
       ? { panoramica: vDefPanoramica, reale: vReale, elenco: vElenco, gantt_r: () => vGantt(true), carico_r: () => vCarico(true), cal_g: vCalSlot, p_riep: vPanoramica, offerte: vOfferte, gantt: () => vGantt(false), carico: () => vCarico(false), impostazioni: vImpostazioni, utenti: vUtenti }
-      : { cruscotto: vCruscotto, gantt: vGantt, calendario: vCalendario };
+      : { cruscotto: vCruscotto, tutte: vAgTutte, gantt: vGantt, calendario: vCalendario };
     const keepScroll = window.scrollY;
     if (g && !views[S.tab]) S.tab = "panoramica";
     document.documentElement.dataset.sec = g ? secOf(S.tab) : "";
@@ -296,6 +296,7 @@
     if (S.tab === "impostazioni" && S.me.ruolo === "gestore") bindSettings();
     if (S.tab === "reale" && S.me.ruolo === "gestore") bindReale();
     if (S.tab === "elenco" && S.me.ruolo === "gestore") bindElenco();
+    if (S.tab === "tutte" && S.me.ruolo !== "gestore") bindAgTutte();
     const rs = document.getElementById("restime"); if (rs) rs.onclick = () => busy(async () => { await ricalcolaStime({ toast: true }); render(); });
     if (S.tab === "gantt_r" && S.me.ruolo === "gestore") bindGanttR();
     if (S.tab === "utenti") bindUtenti();
@@ -346,7 +347,8 @@
   /* ---------- AGENTE: cruscotto ---------- */
   function vCruscotto() {
     const all = S.rows, act = all.filter(isActive), conAv = act.filter(r => avvisiOf(r).length), sosp = all.filter(isSospesa);
-    const show = S.showDone ? all.filter(r => !isSospesa(r)) : act;
+    const oggiR = r => isOggi(r.creata_il) || isOggi(r.aggiornata_il) || isOggi(r.piano && r.piano.mov && r.piano.mov.il) || isOggi(r.definitiva && r.definitiva.mov && r.definitiva.mov.il);
+    const show = all.filter(r => !isSospesa(r) && oggiR(r));
     const alerts = act.flatMap(r => avvisiOf(r).map(a => ({ r, a })));
     return `<div class="pagehead"><h2>Ciao ${esc(S.me.nome.split(" ")[0])}</h2><div class="sp"></div>
         <button class="btn pri" data-new>+ Nuova offerta</button></div>
@@ -356,10 +358,10 @@
         <div class="stat ${sosp.length ? "warn" : ""}"><div class="l">Sospese ${info("Offerte senza numero di commessa dopo " + S.sosp + " giorni. Occupano ancora il loro posto: cancellale per liberarlo oppure riprogrammale.")}</div><div class="v num">${sosp.length}</div></div>
       </div>
       <div class="cols"><div>
-        <div class="toolbar"><h3 style="margin:0">Le tue offerte</h3><div style="flex:1"></div>
-          <label class="chk"><input type="checkbox" id="showdone" ${S.showDone ? "checked" : ""}> Mostra anche offerte con settimana già passata</label></div>
+        <div class="toolbar"><h3 style="margin:0">Le tue offerte di oggi</h3><div style="flex:1"></div>
+          <button class="btn sm" data-goto="tutte">Vedi tutte le offerte</button></div>
         ${show.length ? `<div class="cards">${show.slice().reverse().map(r => offertaCard(r, true)).join("")}</div>`
-          : `<div class="panel empty"><b>Nessuna offerta attiva</b>Premi «Nuova offerta» per inserirne una.</div>`}
+          : `<div class="panel empty"><b>Nessuna offerta di oggi</b>Qui compaiono le offerte inserite o cambiate oggi. Le altre le trovi in «Tutte le offerte».</div>`}
         <div class="panel sospp" style="margin-top:20px"><h3>Offerte sospese ${info("Offerte che non sono diventate ordine entro " + S.sosp + " giorni. Il loro posto nel calendario è ancora occupato. «Elimina» lo libera; «Riprogramma» le rimette in corso come se le inserissi oggi, senza perdere i dati.")}</h3>
           ${sosp.length ? `<p class="sub">Queste offerte non risultano ancora confermate. Eliminale per liberare il posto oppure riprogrammale.</p><div class="cards">${sosp.slice().reverse().map(sospesaCard).join("")}</div>`
             : `<div class="empty" style="padding:14px"><b>Nessuna offerta sospesa</b></div>`}</div>
@@ -367,6 +369,41 @@
         ${alerts.length ? alerts.map(({ r, a }) => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>Offerta ${esc(r.numero)} · ${esc(r.cliente)}</b><span>${esc(a.t)}</span></div></div>`).join("")
           : `<div class="empty" style="padding:18px"><b>Tutto regolare</b>Nessun avviso sulle tue offerte.</div>`}
         </div></aside></div>`;
+  }
+
+  /* ---------- AGENTE: foglio con tutte le offerte, confermate e non ---------- */
+  function agTutteHtml() {
+    const q = (S.aq || "").trim().toLowerCase();
+    const rows = S.rows.filter(r => !q || `${r.numero} ${r.cliente} ${r.commessa || ""}`.toLowerCase().includes(q)).slice().reverse();
+    const conf = rows.filter(r => r.commessa), att = rows.filter(r => !r.commessa && !isSospesa(r)), sosp = rows.filter(isSospesa);
+    const av = r => { const a = avvisiOf(r); return a.length ? `<span class="badge ${a.some(x => x.bad) ? "bad" : "warn"}" title="${esc(a.map(x => x.t).join(" · "))}">${a.length}</span>` : ""; };
+    const head = cols => `<thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead>`;
+    const base = r => `<td><b>${esc(r.numero)}</b></td><td>${esc(r.cliente)}</td><td class="num small">${esc(fmtDay(r.creata_il))}</td><td class="num">${r.r.fori}</td>`;
+    const sec = (titolo, n, corpo, vuoto) => `<div class="panel" style="padding:0"><h3 style="padding:14px 16px 0;margin:0">${titolo} <span class="cnt">${n}</span></h3>${n ? `<div class="scroll">${corpo}</div>` : `<div class="empty" style="padding:16px"><b>${vuoto}</b></div>`}</div>`;
+    const tConf = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "Commessa", "Posa definitiva", "Avvisi"])}<tbody>${conf.map(r => { const d = r.definitiva || {}, dp = d.posa || d.pub;
+      return `<tr>${base(r)}<td><span class="badge ok">${esc(r.commessa)}</span></td><td class="posa">${dp ? esc(dp) + (d.approvata ? "" : ' <span class="muted small">prevista</span>') : '<span class="muted small">in arrivo</span>'}</td><td>${av(r)}</td></tr>`; }).join("")}</tbody></table>`;
+    const tAtt = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "Posa indicativa", "Avvisi", ""])}<tbody>${att.map(r => `<tr>${base(r)}<td class="posa">${r.r.ok ? wl(r.r.posa) : "—"} <span class="muted small">indicativa</span></td><td>${av(r)}</td>
+      <td class="nw"><button class="btn sm" data-edit="${r.id}">Modifica</button> <button class="btn sm danger" data-del="${r.id}">Elimina</button></td></tr>`).join("")}</tbody></table>`;
+    const tSosp = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "", ""])}<tbody>${sosp.map(r => `<tr>${base(r)}<td><span class="badge warn">Sospesa</span></td>
+      <td class="nw"><button class="btn sm" data-repro="${r.id}">Riprogramma</button> <button class="btn sm danger" data-del="${r.id}">Elimina</button></td></tr>`).join("")}</tbody></table>`;
+    return `<div class="stack">${sec("Confermate (con commessa)", conf.length, tConf, "Nessuna offerta confermata")}
+      ${sec("In attesa di conferma", att.length, tAtt, "Nessuna offerta in attesa")}
+      ${sosp.length ? sec("Sospese", sosp.length, tSosp, "") : ""}</div>`;
+  }
+  function vAgTutte() {
+    return `<div class="pagehead"><h2>Tutte le mie offerte</h2><div class="sp"></div><input class="inp" id="aq" value="${esc(S.aq || "")}" placeholder="Cerca offerta, cliente, commessa…" autocomplete="off" style="width:250px"><button class="btn pri" data-new>+ Nuova offerta</button></div>
+      <p class="sub">Tutte le tue offerte, separate in confermate, in attesa e sospese. Le settimane delle offerte non ancora confermate sono solo indicative.</p>
+      <div id="ag-res">${agTutteHtml()}</div>`;
+  }
+  function bindAgTutte() {
+    const res = document.getElementById("ag-res");
+    const wire = () => {
+      res.querySelectorAll("[data-edit]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.edit))));
+      res.querySelectorAll("[data-del]").forEach(b => (b.onclick = () => delOfferta(b.dataset.del)));
+      res.querySelectorAll("[data-repro]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.repro), { repro: true })));
+    };
+    document.getElementById("aq").oninput = e => { S.aq = e.target.value; res.innerHTML = agTutteHtml(); wire(); };
+    wire();
   }
 
   /* ---------- Gantt ---------- */
