@@ -601,10 +601,12 @@
   }
 
   // avvisi di una commessa: segnalazioni del calcolo + ultimo spostamento della posa
-  function avvisiReale(p) {
-    const out = (p.piano.warnings || []).map(w => ({ t: E.humanWarn(w), bad: /oltre la data richiesta|prima del termine|orizzonte/.test(w) }));
-    const of = S.offerte.find(o => o.id === p.offerta_id), m = of && of.definitiva && of.definitiva.mov;
-    if (m) out.push({ t: `${m.motivo}: posa da ${m.da} a ${m.a} (${fmtDay(m.il)})`, bad: m.a > m.da });
+  const isOggi = iso => !!iso && new Date(iso).toDateString() === new Date().toDateString();
+  function avvisiReale(p, soloOggi) {
+    const out = [], of = S.offerte.find(o => o.id === p.offerta_id), m = of && of.definitiva && of.definitiva.mov;
+    // le segnalazioni del calcolo valgono per il giorno in cui la commessa è stata calcolata o modificata
+    if (!soloOggi || isOggi(p.aggiornata_il)) for (const w of p.piano.warnings || []) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta|prima del termine|orizzonte/.test(w) });
+    if (m && (!soloOggi || isOggi(m.il))) out.push({ t: `${m.motivo}: posa da ${m.da} a ${m.a} (${fmtDay(m.il)})`, bad: m.a > m.da });
     return out;
   }
   // ---- panoramica definitiva
@@ -622,8 +624,8 @@
         <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane del piano definitivo in cui il lavoro assegnato supera la capacità, ad esempio dopo una riduzione di capacità.")}</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
       </div>
       <div class="cols"><div>
-        <div class="panel"><h3>Avvisi sulle commesse ${info("Segnalazioni del calcolo (reparti pieni, rilievo in ritardo, posa fissata prima del termine) e ultimo spostamento della posa.")}</h3>
-          ${(() => { const l = act.flatMap(p => avvisiReale(p).map(a => ({ p, a }))); return l.length ? l.slice(0, 15).map(({ p, a }) => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>${esc(p.commessa)} · ${esc(p.cliente || "")}</b><span>${esc(a.t)} · <a href="#" data-goto="reale" data-open="${p.id}">apri</a></span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Nessun avviso</b></div>`; })()}</div>
+        <div class="panel"><h3>Avvisi di oggi sulle commesse ${info("Solo gli avvisi di oggi: segnalazioni del calcolo (reparti pieni, rilievo in ritardo, posa fissata prima del termine) delle commesse calcolate o modificate oggi, e gli spostamenti di posa avvenuti oggi. Gli altri sono nel dettaglio di ogni commessa.")}</h3>
+          ${(() => { const l = act.flatMap(p => avvisiReale(p, true).map(a => ({ p, a }))); return l.length ? l.slice(0, 15).map(({ p, a }) => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>${esc(p.commessa)} · ${esc(p.cliente || "")}</b><span>${esc(a.t)} · <a href="#" data-goto="reale" data-open="${p.id}">apri</a></span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Nessun avviso oggi</b></div>`; })()}</div>
         <div class="panel"><h3>Saturazione dei reparti</h3><div class="lines">${meters(PR)}</div></div>
       </div><aside>
         <div class="panel"><h3>Da verificare</h3>
