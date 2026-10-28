@@ -87,16 +87,10 @@
   function fasiCambiate(a, b, man) {
     return FASI.filter(([k]) => a[k] && b[k] && a[k] !== b[k]).map(([k, n]) => n.toLowerCase() + (man && man[FASI_MAN[k]] ? " (a mano)" : ""));
   }
+  const elenco = a => a.length > 1 ? a.slice(0, -1).join(", ") + " e " + a[a.length - 1] : a[0] || "posa";
   function motivoReale(old, np) {
-    const tag = [];
-    let fasi = [];
-    if (old) {
-      fasi = fasiCambiate(old.piano, np.piano, np.manuali || {});
-      if (old.rilievo !== np.rilievo) tag.push("rilievo riassegnato");
-      if (JSON.stringify(old.input) !== JSON.stringify(np.input)) tag.push("composizione modificata");
-    }
-    tag.push(...motivoPlan(np.piano));
-    return `Spostate: ${fasi.join(", ") || "posa"}${tag.length ? " — " + tag.join(", ") : ""}`;
+    const f = old ? FASI.filter(([k]) => old.piano[k] && np.piano[k] && old.piano[k] !== np.piano[k]).map(([, n]) => n.toLowerCase()) : [];
+    return `Spostata ${elenco(f)}`;
   }
   // data definitiva mostrata all'agente (solo dopo l'OK del gestore) e ultimo spostamento con il motivo
   function defOf(np, old) {
@@ -123,7 +117,7 @@
         const fz = E.freeze(pl.res[0], pl.C);
         occ = addRows(occ, fz.foot);
         if (old.mov) fz.mov = old.mov;
-        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: `${fz.posa < old.posa ? "Anticipate" : "Spostate"}: ${fasiCambiate(old, fz).join(", ") || "posa"} — ${fz.posa < old.posa ? "spazio liberato" : (motivoPlan(fz).join(", ") || "precedenza alle commesse confermate")}` }; moved++; }
+        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: `${fz.posa < old.posa ? "Anticipata" : "Spostata"} ${elenco(FASI.filter(([k]) => old[k] && fz[k] && old[k] !== fz[k]).map(([, n]) => n.toLowerCase()))}` }; moved++; }
         if (JSON.stringify(fz) !== JSON.stringify(old)) items.push({ id: o.id, piano: fz });
       }
       if (items.length || S.offerte.some(o => o.commessa)) { await Api.ricalcolaStime(items); await refresh(true); }
@@ -319,13 +313,13 @@
     const out = [];
     if (row.commessa) {
       const d = row.definitiva;
-      if (d && d.approvata && d.mov) out.push({ t: `Posa definitiva spostata da ${d.mov.da} a ${d.mov.a} (${fmtDay(d.mov.il)}). ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
+      if (d && d.approvata && d.mov) out.push({ t: `${d.mov.motivo}: posa definitiva da ${d.mov.da} a ${d.mov.a}.`, bad: d.mov.a > d.mov.da });
       return out;
     }
     if (!row.r.ok) out.push({ t: E.humanWarn("orizzonte"), bad: true });
     for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
     const m = row.piano && row.piano.mov;
-    if (m) out.push({ t: `Stima di posa spostata da ${m.da} a ${m.a} (${fmtDay(m.il)}). ${m.motivo}.`, bad: m.a > m.da });
+    if (m) out.push({ t: `${m.motivo}: stima di posa da ${m.da} a ${m.a}.`, bad: m.a > m.da });
     return out;
   }
   function offertaCard(row, canEdit) {
