@@ -95,7 +95,7 @@
   // data definitiva mostrata all'agente (solo dopo l'OK del gestore) e ultimo spostamento con il motivo
   function defOf(np, old) {
     const of = S.offerte.find(o => o.id === np.offerta_id), prev = (of && of.definitiva) || {}, posa = np.piano.posa || null;
-    const d = { approvata: !!np.approvata, posa, pub: np.approvata ? posa : (prev.pub || null), mov: prev.mov || null };
+    const d = { comp: np.input, posa_rich: np.posa_rich || null, avvisi: (np.piano.warnings || []).map(E.humanWarn), approvata: !!np.approvata, posa, pub: np.approvata ? posa : (prev.pub || null), mov: prev.mov || null };
     if (np.approvata && prev.pub && posa && prev.pub !== posa) d.mov = { da: prev.pub, a: posa, il: new Date().toISOString(), motivo: motivoReale(old, np) };
     return d;
   }
@@ -289,6 +289,7 @@
     $app.querySelectorAll("[data-new]").forEach(b => (b.onclick = () => openForm(null)));
     $app.querySelectorAll("[data-edit]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.edit))));
     $app.querySelectorAll("[data-del]").forEach(b => (b.onclick = () => delOfferta(b.dataset.del)));
+    $app.querySelectorAll("[data-comp]").forEach(b => (b.onclick = () => openComp(S.rows.find(r => r.id === b.dataset.comp))));
     $app.querySelectorAll("[data-repro]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.repro), { repro: true })));
     const sd = document.getElementById("showdone"); if (sd) sd.onchange = () => { S.showDone = sd.checked; render(); };
     const af = document.getElementById("agentf"); if (af) af.onchange = () => { S.agentF = af.value; render(); };
@@ -314,6 +315,7 @@
     const out = [];
     if (row.commessa) {
       const d = row.definitiva;
+      if (d && Array.isArray(d.avvisi)) for (const t of d.avvisi) out.push({ t, bad: /slitta|prima del termine|Non c'è abbastanza/.test(t) });
       if (d && d.approvata && d.mov) out.push({ t: `${d.mov.motivo}: posa definitiva da ${d.mov.da} a ${d.mov.a}.`, bad: d.mov.a > d.mov.da });
       return out;
     }
@@ -333,6 +335,7 @@
         ${r.req != null ? `<small>Richiesta dal cliente: ${wl(r.req)}</small>` : ""}</div>`}</div>
       ${av.length ? `<div class="warns">${av.map(a => `<div>⚠ ${esc(a.t)}</div>`).join("")}</div>` : ""}
       ${canEdit && !conf ? `<div class="a"><div class="sp"></div><button class="btn sm" data-edit="${row.id}">Modifica</button><button class="btn sm danger" data-del="${row.id}">Elimina</button></div>` : ""}
+      ${conf ? `<div class="a"><div class="sp"></div><button class="btn sm" data-comp="${row.id}">Vedi composizione</button></div>` : ""}
     </article>`;
   }
   function sospesaCard(row) {
@@ -371,17 +374,34 @@
         </div></aside></div>`;
   }
 
+  // composizione dell'ordine confermato, sola lettura per l'agente
+  function openComp(row) {
+    if (!row) return;
+    const d = row.definitiva || {}, inp = d.comp || row.input, posaRich = d.posa_rich;
+    const host = document.createElement("div"); host.id = "drawerhost";
+    host.innerHTML = `<div class="scrim" data-x></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Composizione">
+      <header><div class="top2"><h2>Commessa ${esc(row.commessa)}</h2><button class="btn sm" data-x type="button">Chiudi</button></div>
+        <div class="stamp">Offerta ${esc(row.numero)} · ${esc(row.cliente)}<br>${d.comp ? "Composizione dell'ordine confermato dall'ufficio." : "Composizione come inserita nell'offerta."} Solo lettura: per modificarla contatta l'ufficio.</div></header>
+      <div class="body"><h3>Composizione</h3><div class="chips">${chipsComp(inp)}</div>
+        <h3>Tipologie</h3><div class="tipi">${chipsTipi(inp)}</div>
+        ${posaRich ? `<h3>Posa richiesta dal cliente</h3><p>${esc(posaRich)}</p>` : ""}
+        ${(d.posa || d.pub) ? `<h3>Posa definitiva ${d.approvata ? "" : "(prevista)"}</h3><p class="posa">${esc(d.posa || d.pub)}</p>` : ""}</div>
+      <footer><div class="btns"><button class="btn" data-x type="button">Chiudi</button></div></footer></aside>`;
+    document.body.appendChild(host); document.body.style.overflow = "hidden";
+    const close = () => { host.remove(); document.body.style.overflow = ""; };
+    host.querySelectorAll("[data-x]").forEach(b => (b.onclick = close));
+  }
   /* ---------- AGENTE: foglio con tutte le offerte, confermate e non ---------- */
   function agTutteHtml() {
     const q = (S.aq || "").trim().toLowerCase();
     const rows = S.rows.filter(r => !q || `${r.numero} ${r.cliente} ${r.commessa || ""}`.toLowerCase().includes(q)).slice().reverse();
     const conf = rows.filter(r => r.commessa), att = rows.filter(r => !r.commessa && !isSospesa(r)), sosp = rows.filter(isSospesa);
-    const av = r => { const a = avvisiOf(r); return a.length ? `<span class="badge ${a.some(x => x.bad) ? "bad" : "warn"}" title="${esc(a.map(x => x.t).join(" · "))}">${a.length}</span>` : ""; };
+    const av = r => avvisiOf(r).map(x => `<div class="small" style="color:var(--${x.bad ? "bad" : "warn"});white-space:normal;max-width:340px">⚠ ${esc(x.t)}</div>`).join("");
     const head = cols => `<thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead>`;
     const base = r => `<td><b>${esc(r.numero)}</b></td><td>${esc(r.cliente)}</td><td class="num small">${esc(fmtDay(r.creata_il))}</td><td class="num">${r.r.fori}</td>`;
     const sec = (titolo, n, corpo, vuoto) => `<div class="panel" style="padding:0"><h3 style="padding:14px 16px 0;margin:0">${titolo} <span class="cnt">${n}</span></h3>${n ? `<div class="scroll">${corpo}</div>` : `<div class="empty" style="padding:16px"><b>${vuoto}</b></div>`}</div>`;
-    const tConf = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "Commessa", "Posa definitiva", "Avvisi"])}<tbody>${conf.map(r => { const d = r.definitiva || {}, dp = d.posa || d.pub;
-      return `<tr>${base(r)}<td><span class="badge ok">${esc(r.commessa)}</span></td><td class="posa">${dp ? esc(dp) + (d.approvata ? "" : ' <span class="muted small">prevista</span>') : '<span class="muted small">in arrivo</span>'}</td><td>${av(r)}</td></tr>`; }).join("")}</tbody></table>`;
+    const tConf = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "Commessa", "Posa definitiva", "Avvisi", ""])}<tbody>${conf.map(r => { const d = r.definitiva || {}, dp = d.posa || d.pub;
+      return `<tr>${base(r)}<td><span class="badge ok">${esc(r.commessa)}</span></td><td class="posa">${dp ? esc(dp) + (d.approvata ? "" : ' <span class="muted small">prevista</span>') : '<span class="muted small">in arrivo</span>'}</td><td>${av(r)}</td><td class="nw"><button class="btn sm" data-comp="${r.id}">Composizione</button></td></tr>`; }).join("")}</tbody></table>`;
     const tAtt = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "Posa indicativa", "Avvisi", ""])}<tbody>${att.map(r => `<tr>${base(r)}<td class="posa">${r.r.ok ? wl(r.r.posa) : "—"} <span class="muted small">indicativa</span></td><td>${av(r)}</td>
       <td class="nw"><button class="btn sm" data-edit="${r.id}">Modifica</button> <button class="btn sm danger" data-del="${r.id}">Elimina</button></td></tr>`).join("")}</tbody></table>`;
     const tSosp = `<table class="t">${head(["Offerta", "Cliente", "Inserita", "Fori", "", ""])}<tbody>${sosp.map(r => `<tr>${base(r)}<td><span class="badge warn">Sospesa</span></td>
@@ -401,6 +421,7 @@
       res.querySelectorAll("[data-edit]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.edit))));
       res.querySelectorAll("[data-del]").forEach(b => (b.onclick = () => delOfferta(b.dataset.del)));
       res.querySelectorAll("[data-repro]").forEach(b => (b.onclick = () => openForm(S.rows.find(r => r.id === b.dataset.repro), { repro: true })));
+      res.querySelectorAll("[data-comp]").forEach(b => (b.onclick = () => openComp(S.rows.find(r => r.id === b.dataset.comp))));
     };
     document.getElementById("aq").oninput = e => { S.aq = e.target.value; res.innerHTML = agTutteHtml(); wire(); };
     wire();
@@ -856,7 +877,7 @@
       const np = { offerta_id: o.id, offerta_num: o.numero, cliente: o.cliente, agente_nome: o.agente_nome, posa_agente: o.piano.posa || null, commessa: comm, input: v.i, rilievo: ril, posa_rich: form.posaRich || "", manuali: {}, note: "", approvata: false };
       np.piano = calcReale(np, S.realOcc);
       await busy(async () => {
-        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); await Api.impostaDefinitiva(o.id, { approvata: false, posa: np.piano.posa || null, pub: null, mov: null }); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); await ricalcolaStime(); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
+        try { await Api.pianoSalva(np); await Api.impostaCommessa(o.id, comm); await Api.impostaDefinitiva(o.id, { comp: np.input, posa_rich: np.posa_rich || null, avvisi: (np.piano.warnings || []).map(E.humanWarn), approvata: false, posa: np.piano.posa || null, pub: null, mov: null }); S.prForm = { off: "", comm: "", ril: "", oid: null, form: null }; await refresh(true); await ricalcolaStime(); toast(`Commessa ${comm} aggiunta: controlla le date e dai l'OK.`); }
         catch (e) { toast(e.message, true); }
       });
       render();
