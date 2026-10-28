@@ -69,37 +69,34 @@
   // perché un piano parte più tardi: tecnici, reparto pieno, settimane riservate al recupero ritardo
   function motivoPlan(pi) {
     const out = [], w = pi.warnings || [];
-    if (w.some(x => /Coda rilievo/.test(x))) out.push("i tecnici del rilievo sono già impegnati");
+    if (w.some(x => /Coda rilievo/.test(x))) out.push("tecnici impegnati");
     if (w.some(x => /Produzione in coda/.test(x))) {
       let lim = null, first = "";
       for (const [k, arr] of Object.entries(pi.foot || {})) { if (k === "ril" || !arr.length) continue; if (arr[0][0] > first) { first = arr[0][0]; lim = k; } }
       const nm = lim ? (E.LINES.find(l => l.key === lim) || {}).name : "", a = S.C.idxOf(pi.N), b = S.C.idxOf(first);
       let rec = false; if (lim && a != null && b != null && S.P.blk) for (let x = Math.max(1, a); x < b; x++) if (S.P.blk[lim][x]) rec = true;
-      out.push(`il reparto ${nm} è già occupato (la produzione parte in ${first})${rec ? " e alcune settimane sono riservate al recupero del ritardo di produzione" : ""}`);
+      out.push(`reparto ${nm} pieno${rec ? ", recupero ritardo" : ""}`);
     }
     return out;
   }
   // fasi della commessa: cosa si è spostato (rilievo, conferma ordine, acquisti, produzione, posa)
   const FASI = [["rilFirst", "Rilievo"], ["L", "Conferma ordine"], ["M", "Acquisti"], ["pFirst", "Produzione"], ["posa", "Posa"]];
   const MANK = { L: "Conferma ordine", M: "Acquisti", N: "Produzione", posa: "Posa" };
+  const FASI_MAN = { rilFirst: "rilievo", L: "L", M: "M", pFirst: "N", posa: "posa" };
+  // nomi delle fasi che si sono spostate, es. «acquisti (a mano), produzione, posa»
   function fasiCambiate(a, b, man) {
-    const mk = { rilFirst: "rilievo", L: "L", M: "M", pFirst: "N", posa: "posa" };
-    return FASI.filter(([k]) => a[k] && b[k] && a[k] !== b[k]).map(([k, n]) => `${n.toLowerCase()} da ${a[k]} a ${b[k]}${man && man[mk[k]] ? " (data modificata a mano)" : ""}`);
+    return FASI.filter(([k]) => a[k] && b[k] && a[k] !== b[k]).map(([k, n]) => n.toLowerCase() + (man && man[FASI_MAN[k]] ? " (a mano)" : ""));
   }
   function motivoReale(old, np) {
-    const out = [];
+    const tag = [];
+    let fasi = [];
     if (old) {
-      const fasi = fasiCambiate(old.piano, np.piano, np.manuali || {});
-      if (fasi.length) out.push((np.piano.posa > old.piano.posa ? "ritardo su: " : np.piano.posa < old.piano.posa ? "posa anticipata, spostamenti su: " : "spostamenti su: ") + fasi.join("; "));
-      if (old.rilievo !== np.rilievo) out.push(`rilievo riassegnato dal gestore (da ${old.rilievo} a ${np.rilievo})`);
-      const mo = old.manuali || {}, mn = np.manuali || {};
-      const chg = Object.keys(MANK).filter(k => (mo[k] || "") !== (mn[k] || "")), set = chg.filter(k => mn[k]), cl = chg.filter(k => !mn[k]);
-      if (set.length) out.push("modificata a mano: " + set.map(k => MANK[k].toLowerCase()).join(", "));
-      if (cl.length) out.push(old.rilievo !== np.rilievo ? "date manuali azzerate dal cambio di rilievo" : "tornata al calcolo automatico: " + cl.map(k => MANK[k].toLowerCase()).join(", "));
-      if (JSON.stringify(old.input) !== JSON.stringify(np.input)) out.push("composizione dell'ordine modificata");
+      fasi = fasiCambiate(old.piano, np.piano, np.manuali || {});
+      if (old.rilievo !== np.rilievo) tag.push("rilievo riassegnato");
+      if (JSON.stringify(old.input) !== JSON.stringify(np.input)) tag.push("composizione modificata");
     }
-    out.push(...motivoPlan(np.piano));
-    return capFirst(out.length ? out.join(" · ") : "ricalcolo del piano di produzione");
+    tag.push(...motivoPlan(np.piano));
+    return `Spostate: ${fasi.join(", ") || "posa"}${tag.length ? " — " + tag.join(", ") : ""}`;
   }
   // data definitiva mostrata all'agente (solo dopo l'OK del gestore) e ultimo spostamento con il motivo
   function defOf(np, old) {
@@ -126,7 +123,7 @@
         const fz = E.freeze(pl.res[0], pl.C);
         occ = addRows(occ, fz.foot);
         if (old.mov) fz.mov = old.mov;
-        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: capFirst([fasiCambiate(old, fz).length ? (fz.posa < old.posa ? "anticipo su: " : "ritardo su: ") + fasiCambiate(old, fz).join("; ") : "", fz.posa < old.posa ? "si è liberato spazio nel piano di produzione (una commessa si è spostata o è stata tolta)" : (motivoPlan(fz).join(" · ") || "le commesse confermate hanno la precedenza sugli slot")].filter(Boolean).join(" · ")) }; moved++; }
+        if (old.posa && fz.posa && old.posa !== fz.posa) { fz.mov = { da: old.posa, a: fz.posa, il: new Date().toISOString(), motivo: `${fz.posa < old.posa ? "Anticipate" : "Spostate"}: ${fasiCambiate(old, fz).join(", ") || "posa"} — ${fz.posa < old.posa ? "spazio liberato" : (motivoPlan(fz).join(", ") || "precedenza alle commesse confermate")}` }; moved++; }
         if (JSON.stringify(fz) !== JSON.stringify(old)) items.push({ id: o.id, piano: fz });
       }
       if (items.length || S.offerte.some(o => o.commessa)) { await Api.ricalcolaStime(items); await refresh(true); }
@@ -322,13 +319,13 @@
     const out = [];
     if (row.commessa) {
       const d = row.definitiva;
-      if (d && d.approvata && d.mov) out.push({ t: `La posa definitiva è stata spostata da ${d.mov.da} a ${d.mov.a} (il ${fmtDay(d.mov.il)}). Dettaglio: ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
+      if (d && d.approvata && d.mov) out.push({ t: `Posa definitiva spostata da ${d.mov.da} a ${d.mov.a} (${fmtDay(d.mov.il)}). ${d.mov.motivo}.`, bad: d.mov.a > d.mov.da });
       return out;
     }
     if (!row.r.ok) out.push({ t: E.humanWarn("orizzonte"), bad: true });
     for (const w of row.r.warnings) if (!/orizzonte/.test(w)) out.push({ t: E.humanWarn(w), bad: /oltre la data richiesta/.test(w) });
     const m = row.piano && row.piano.mov;
-    if (m) out.push({ t: `La stima di posa è cambiata da ${m.da} a ${m.a} (il ${fmtDay(m.il)}). Dettaglio: ${m.motivo}.`, bad: m.a > m.da });
+    if (m) out.push({ t: `Stima di posa spostata da ${m.da} a ${m.a} (${fmtDay(m.il)}). ${m.motivo}.`, bad: m.a > m.da });
     return out;
   }
   function offertaCard(row, canEdit) {
