@@ -600,6 +600,13 @@
     return head + `<div class="cform" id="pr-cform"><p class="sub" style="margin:10px 0 0">Composizione ricostruita dall'offerta: correggila qui se serve (vale solo per il piano definitivo).</p>${compFormHtml(S.prForm.form)}<div id="pr-res"></div></div>`;
   }
 
+  // avvisi di una commessa: segnalazioni del calcolo + ultimo spostamento della posa
+  function avvisiReale(p) {
+    const out = (p.piano.warnings || []).map(w => ({ t: E.humanWarn(w), bad: /oltre la data richiesta|prima del termine|orizzonte/.test(w) }));
+    const of = S.offerte.find(o => o.id === p.offerta_id), m = of && of.definitiva && of.definitiva.mov;
+    if (m) out.push({ t: `${m.motivo}: posa da ${m.da} a ${m.a} (${fmtDay(m.il)})`, bad: m.a > m.da });
+    return out;
+  }
   // ---- panoramica definitiva
   function vDefPanoramica() {
     const rows = sortReale(S.piano), PR = S.PR, sov = sovraccarichi(PR), curL = S.P.cal[S.cur].label;
@@ -615,6 +622,8 @@
         <div class="stat ${sov.length ? "bad" : "good"}"><div class="l">Settimane sovraccariche ${info("Settimane del piano definitivo in cui il lavoro assegnato supera la capacità, ad esempio dopo una riduzione di capacità.")}</div><div class="v num">${new Set(sov.map(x => x.w)).size}</div></div>
       </div>
       <div class="cols"><div>
+        <div class="panel"><h3>Avvisi sulle commesse ${info("Segnalazioni del calcolo (reparti pieni, rilievo in ritardo, posa fissata prima del termine) e ultimo spostamento della posa.")}</h3>
+          ${(() => { const l = act.flatMap(p => avvisiReale(p).map(a => ({ p, a }))); return l.length ? l.slice(0, 15).map(({ p, a }) => `<div class="alert ${a.bad ? "bad" : ""}"><i></i><div><b>${esc(p.commessa)} · ${esc(p.cliente || "")}</b><span>${esc(a.t)} · <a href="#" data-goto="reale" data-open="${p.id}">apri</a></span></div></div>`).join("") : `<div class="empty" style="padding:18px"><b>Nessun avviso</b></div>`; })()}</div>
         <div class="panel"><h3>Saturazione dei reparti</h3><div class="lines">${meters(PR)}</div></div>
       </div><aside>
         <div class="panel"><h3>Da verificare</h3>
@@ -732,7 +741,7 @@
       return `<td class="${{ rilievo: "f-ril", L: "f-ord", M: "f-acq", N: "f-prod", posa: "f-posa" }[key]} ${man ? "man" : ""}"><input class="inp wkc" data-pr="${p.id}" data-f="${key}" value="${esc(val || "")}" ${man ? 'title="Modificata a mano. Svuota il campo per tornare al calcolo automatico."' : ""} placeholder="${key === "rilievo" ? "" : "auto"}"></td>`;
     };
     const body = rows.map(p => {
-      const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), av = (pi.warnings || []).map(E.humanWarn), op = !!S.open[p.id];
+      const pi = p.piano, d = diffSett(pi.posa, p.posa_agente), av = avvisiReale(p).map(a => a.t), op = !!S.open[p.id];
       const dif = d == null ? "—" : d === 0 ? `<span class="badge ok">uguale</span>` : d > 0 ? `<span class="badge bad">+${d} sett.</span>` : `<span class="badge ok">${d} sett.</span>`;
       const fsd = nFsd(p.input);
       const main = `<tr class="${p.approvata ? "" : "bozza"}"><td class="nw"><button class="btn sm ghost" data-pr-open="${p.id}" aria-expanded="${op}" title="Composizione, tipologie e note">${op ? "▾" : "▸"}</button> ${p.approvata ? `<span class="badge ok">OK</span>` : `<span class="badge warn">Da verificare</span>`}</td>
@@ -742,7 +751,8 @@
         ${cell(p, "posa", pi.posa)}<td>${dif}</td>
         <td class="nw">${av.length ? `<span class="badge warn" title="${esc(av.join(" · "))}">${av.length} avv.</span> ` : ""}${p.approvata ? "" : `<button class="btn sm pri" data-pr-ok="${p.id}">Dai l'OK</button>`}</td></tr>`;
       const det = op ? `<tr class="det"><td colspan="11"><div class="detbox">
-          <div><h4>Composizione</h4><div class="chips">${chipsComp(p.input)}</div>${p.posa_rich ? `<p class="small muted" style="margin:8px 0 0">Posa richiesta dal cliente: <b>${esc(p.posa_rich)}</b></p>` : ""}</div>
+          <div><h4>Composizione</h4><div class="chips">${chipsComp(p.input)}</div>${p.posa_rich ? `<p class="small muted" style="margin:8px 0 0">Posa richiesta dal cliente: <b>${esc(p.posa_rich)}</b></p>` : ""}
+            <h4 style="margin-top:12px">Avvisi</h4>${avvisiReale(p).map(a => `<div class="small" style="color:var(--${a.bad ? "bad" : "warn"})">⚠ ${esc(a.t)}</div>`).join("") || `<span class="muted small">Nessuno</span>`}</div>
           <div><h4>Tipologie</h4><div class="tipi">${chipsTipi(p.input)}</div></div>
           <div><h4>Note</h4><textarea class="inp" rows="4" data-note="${p.id}" placeholder="Note sulla commessa…">${esc(p.note || "")}</textarea><span class="small muted">Si salvano uscendo dal campo.</span></div>
           <div class="dact"><button class="btn sm" data-pr-edit="${p.id}">Modifica composizione</button>${p.approvata ? `<button class="btn sm" data-pr-unok="${p.id}">Togli l'OK</button>` : `<button class="btn sm pri" data-pr-ok="${p.id}">Dai l'OK</button>`}<button class="btn sm danger" data-pr-del="${p.id}" title="Toglie la commessa dal piano definitivo">Rimuovi</button></div>
